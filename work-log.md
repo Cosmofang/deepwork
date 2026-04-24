@@ -1,0 +1,305 @@
+# DeepWork Work Log
+
+自主分析与工作记录。每次循环更新。
+
+---
+
+## 第一轮分析 — 2026/04/24
+
+### 当前架构状态
+
+**完成度评估：75%（基础流程通，缺关键迭代闭环）**
+
+完整代码路径：
+```
+/ (入口)
+  → /room/[id] (3栏：我的意图 | 协作流 | 板块状态)
+    → POST /api/intents (提交意图 + 触发workspace同步)
+    → POST /api/sections (新建板块)
+    → POST /api/synthesize (触发Claude合成 → 设status=done)
+  → /room/[id]/result (HTML预览 + 归因侧栏)
+    → ← 继续迭代 → /room/[id]
+```
+
+**Supabase Realtime 订阅：**
+- intents:INSERT → 实时显示新意图
+- room_sections:INSERT → 实时同步新板块
+- rooms:UPDATE → 实时同步合成状态锁定
+
+### 发现的问题
+
+#### 🔴 严重 Bug（已修复）
+- **"继续迭代"断路**：用户点击合成后 status 变 `done`，返回房间后合成按钮被禁用无法再次触发。
+  - 根因：result页面的"← 继续迭代"仅做路由跳转，没有重置房间状态
+  - 修复：新增 `POST /api/rooms/reset` 路由，result页面点击"继续迭代"前先调用reset
+
+#### 🟡 体验问题（已修复）
+- **房间码无法快速分享**：header中的房间码是纯文字，无法复制
+  - 修复：点击房间码自动复制到剪贴板，显示"已复制 ✓"反馈
+- **不知道有多少人在线**：房间里看不到参与者数量
+  - 修复：实时订阅participants:INSERT，header显示"N人在线"
+
+#### 🟡 合成质量（已改进）
+- **data-source属性不稳定**：原prompt对data-source要求模糊，Claude可能忽略
+  - 改进：prompt重写，明确每个`<section>`必须携带data-source，提供合法值列表
+  - 明确输出格式和区块顺序建议（Hero → 价值主张 → 功能亮点 → 社交证明 → 定价 → FAQ → CTA）
+- **JSON返回不稳定**：Claude有时会包裹markdown代码块
+  - 现有fallback：`text.match(/\{[\s\S]*\}/)` 已处理，但prompt改进后应减少此问题
+
+### 本轮改动列表
+
+| 文件 | 改动 | 原因 |
+|------|------|------|
+| `src/app/api/rooms/reset/route.ts` | 新建 | 修复"继续迭代"断路 |
+| `src/app/room/[id]/result/page.tsx` | 改 handleContinue | 调用reset后再跳转 |
+| `src/app/room/[id]/page.tsx` | 加participants状态+订阅+复制按钮 | 体验改进 |
+| `src/app/api/synthesize/route.ts` | 重写prompt | 合成质量提升 |
+
+**构建验证：** ✅ `npm run build` 通过，9个路由全部编译成功
+
+---
+
+### 下一步优先级（下轮分析时检查）
+
+1. **前端演示就绪度**
+   - [ ] 测试完整流程：6人加入 → 各自提交意图 → 合成 → 查看归因 → 继续迭代
+   - [ ] 验证data-source hover attribution在iframe中工作
+   - [ ] 验证realtime在多标签页的表现
+
+2. **合成质量**
+   - [ ] 用真实6角色意图测试合成（需要ANTHROPIC_API_KEY环境变量）
+   - [ ] 检查生成HTML是否有Tailwind CDN正确加载
+   - [ ] 检查HTML是否包含data-source属性
+
+3. **Demo体验提升**
+   - [ ] 结果页面添加"下载HTML"按钮（演示用）
+   - [ ] 结果页面添加轮次历史（Round 1, Round 2...对比）
+   - [ ] 考虑添加角色颜色图例
+
+4. **技术健壮性**
+   - [ ] synthesize route的timeout保护（Claude调用可能超30s）
+   - [ ] 如果Claude返回超长HTML导致超出max_tokens，需要更大的limit
+   - [ ] participants订阅目前无法检测离线，考虑heartbeat
+
+---
+
+### 工作哲学记录
+
+本项目核心命题："当AI已经可以直接把意图变成产物，多人的想法应该如何汇聚成一个被所有人共同拥有的版本？"
+
+现有方案的本质：**多人意图 → AI合成 → 归因可视化**
+
+这不是"投票"，不是"最大公约数"，而是真正的"集体智慧综合"——每个人都贡献了不同维度的洞察，AI作为合成器找到把这些洞察整合进同一产物的方法。
+
+关键创新点：**归因overlay**。不只是合成，还让每个人能看到"这个部分是我提议的"——这解决了传统AI协作中个人贡献消失的问题。
+
+---
+
+---
+
+## 第二轮分析 — 2026/04/24
+
+### 团队代码扫描
+
+本轮无新的团队提交（git status 显示仅上轮改动未提交）。继续按优先级推进。
+
+### 本轮完成的改动
+
+#### ✅ 结果页面：多轮迭代历史面板
+**文件**：`src/app/room/[id]/result/page.tsx`（完整重写）
+
+**问题**：原页面只显示最新一轮合成结果，看不到迭代历史。演示时无法展示"从Round 1到Round 3的进化过程"这个核心叙事。
+
+**解决方案**：
+- 加载房间所有 synthesis_results（按 round 排序）
+- 右侧边栏顶部新增"迭代历史"面板，显示每轮时间戳，点击切换
+- 添加 Realtime 订阅（synthesis_results:INSERT），新轮次完成自动出现在历史列表并跳到最新
+- `activeRound` 状态控制 iframe 显示哪一轮的 HTML（key={result.id} 确保 iframe 重刷）
+
+**Demo效果**：可以当场切换 R1 → R2 → R3，展示意图叠加后产物进化的过程，这是最有说服力的演示路径。
+
+#### ✅ 下载 HTML 按钮
+**文件**：`src/app/room/[id]/result/page.tsx`
+
+Header 右侧添加"下载 HTML ↓"按钮。点击后用 Blob URL 直接触发下载，文件名格式：`deepwork-{roomId}-round{N}.html`。演示时可以直接展示"AI输出的产物可以直接交付"。
+
+#### ✅ 角色颜色图例
+**文件**：`src/app/room/[id]/result/page.tsx`
+
+归因侧栏底部新增"角色图例"，显示所有6个角色名+颜色点。观众不需要提前了解产品就能理解归因overlay的含义。
+
+#### ✅ 合成 Timeout 保护
+**文件**：`src/app/api/synthesize/route.ts`
+
+添加 90 秒 AbortController timeout：
+```typescript
+const controller = new AbortController();
+const timeoutHandle = setTimeout(() => controller.abort(), 90_000);
+// ... finally { clearTimeout(timeoutHandle); }
+```
+Claude 调用可能超时（网络、高负载），之前会导致房间永远卡在 `synthesizing` 状态。现在超时会被 catch 块捕获，自动重置房间为 `collecting`。
+
+#### ✅ JSON 解析鲁棒性提升
+**文件**：`src/app/api/synthesize/route.ts`
+
+原来用 `text.match(/\{[\s\S]*\}/)` 提取 JSON，但 HTML 里包含大量 `{}` 字符（Tailwind classes 等），贪婪匹配可能提取出错误的片段。
+
+改用手动深度追踪算法：
+```typescript
+// 找第一个 { ，然后逐字符追踪深度，depth=0 时找到匹配的 }
+let depth = 0; for (let i = start; i < text.length; i++) { ... }
+```
+可靠性大幅提升，即使 HTML 内容复杂也能正确提取包裹的 JSON。
+
+**构建验证：** ✅ `npm run build` 通过，result 页面从 2.53KB → 3.6KB（符合新功能预期）
+
+---
+
+### 下一步优先级（下轮分析时检查）
+
+1. **端到端演示脚本验证**
+   - [ ] 准备6人真实演示场景（每人2-3条意图，涵盖不同板块）
+   - [ ] 验证 Tailwind CDN 在 iframe sandbox="allow-scripts" 下能加载
+   - [ ] 如果 Tailwind CDN 被 sandbox 阻止（allow-scripts 不允许 network），需要用内联 CSS fallback
+
+2. **iframe sandbox 问题（高优先级）**
+   - 当前 iframe 用 `sandbox="allow-scripts"` 但不含 `allow-same-origin`
+   - Tailwind CDN script 需要网络请求：`<script src="https://cdn.tailwindcss.com">` 在 sandbox 里**无法加载外部资源**
+   - 修复方案：在 synthesis prompt 里要求输出内联 CSS 而不是 CDN，或改用 `sandbox="allow-scripts allow-same-origin"`
+
+3. **Realtime 订阅稳定性**
+   - [ ] 测试多标签页下 intents 的广播是否正常
+   - [ ] participants 离线检测（当前只能检测加入，无法检测离线）
+
+4. **演示内容预置**
+   - [ ] 考虑添加"演示模式"：预置6个角色的示范意图，一键填充，让观众看到"6人提交完"是什么状态
+
+#### ✅ 全员自动跳转到结果页（关键演示 UX）
+**文件**：`src/app/room/[id]/page.tsx`
+
+**问题**：只有触发合成的人会被 `router.push` 到 `/room/${id}/result`。其他5个人停留在房间页面，合成按钮被禁用，不知道发生了什么。现场演示会很混乱。
+
+**修复**：在 rooms:UPDATE Realtime 回调里，当 status 变为 `done` 时自动跳转：
+```typescript
+if (status === 'done') {
+  router.push(`/room/${id}/result`);
+}
+```
+现在所有人（包括触发者和被动等待者）都会同时被带到结果页面。
+
+#### ✅ 演示示例意图
+**文件**：`src/lib/roles.ts`，`src/app/room/[id]/page.tsx`
+
+给每个角色添加2条精心设计的示范意图（`demoIntents` 字段），涵盖不同板块。在左侧"我的意图"面板底部显示可点击的示例——点击后自动填充 textarea 并切换到对应板块，一键加速演示。
+
+这解决了演示时"6个人都要现场想意图"的时间压力问题。
+
+**构建验证：** ✅ 全部 9 路由编译成功
+
+---
+
+### 下一步优先级（下轮分析时检查）
+
+1. **iframe Tailwind CDN 验证**（需要真实测试）
+   - [ ] 用 `npm run dev` 启动，创建一个房间，提交几条意图，触发合成，检查 iframe 里的 HTML 是否有 Tailwind 样式
+   - 如果 CDN 被 CSP 阻断：修改 synthesize prompt 要求使用内联 Tailwind 编译输出，或改用 `<style>` 标签包含必要的 CSS
+   - 风险评估：`sandbox="allow-scripts"` 应该允许加载外部脚本，大概率没问题
+
+2. **入口页体验**
+   - [ ] 页面上没有解释"这是什么"——考虑在入口页加一段简短的产品说明
+   - [ ] 没有"房间码是什么？"的引导，新用户可能不知道怎么开始
+
+3. **演示流程文档**
+   - [ ] 写一个 docs/demo-script.md：演示步骤、6人角色分配、触发合成的时机、如何解读结果页面
+   - 演示成功的关键是主持人要知道说什么
+
+4. **代码提交**
+   - 目前所有改动都没有提交到 git（git status 显示大量 modified + untracked）
+   - [ ] 统一 commit 并 push 到 https://github.com/Cosmofang/deepwork
+
+_下次更新：下轮自动分析时_
+
+---
+
+## 第三轮分析 — 2026/04/24
+
+### 本轮完成的改动
+
+#### ✅ Vercel 超时修复
+**文件**：`src/app/api/synthesize/route.ts`
+
+添加 `export const maxDuration = 120;`。Vercel serverless 函数默认超时 10 秒，Claude 合成需要 20–60 秒，不加这行会导致所有线上合成失败，房间永远卡在 `synthesizing`。
+
+#### ✅ 彻底移除 Tailwind CDN 依赖
+**文件**：`src/app/api/synthesize/route.ts`
+
+重写 synthesis prompt，明确要求：
+- 不使用任何外部 CSS/JS 框架或 CDN
+- 所有样式写在 `<style>` 标签中，使用标准 CSS + CSS 自定义属性
+- 不得有任何 `<script src>` 或 `<link rel="stylesheet">`
+
+之前 prompt 隐含允许 Tailwind CDN，但 iframe `sandbox="allow-scripts"` 阻止外部网络请求，CDN 会静默失败，页面样式全丢失。现在从根本上消除风险。
+
+#### ✅ 入口页产品说明（新用户引导）
+**文件**：`src/app/page.tsx`
+
+入口页 header 新增两项：
+1. **3步流程说明**：「6人各选角色 → 提交你的意图 → AI 合成产物」—— 让没见过产品的人 5 秒内理解使用方式
+2. **房间码说明**：输入框下方加一行小字，解释主持人生成码、分享给其他人的操作路径
+
+没有引导时，演示现场经常有人不知道房间码是什么、谁来生成。
+
+#### ✅ Demo 演示脚本
+**文件**：`docs/demo-script.md`（新建）
+
+包含：
+- 角色分配表（6角色、颜色、建议人选）
+- 演示前准备清单（env 变量、启动服务）
+- 5步演示流程（进入房间 → 提交意图 → 合成 → 查看结果 → 继续迭代）
+- 关键话术备用（「和投票有什么区别」等常见问题）
+- 故障排查表（合成卡死、iframe 空白、Realtime 失连等）
+
+演示成功的关键是主持人要知道在每个时刻说什么。
+
+**构建验证：** ✅ `npm run build` 通过，所有 9 路由编译成功
+入口页 2.49 kB → 3.37 kB（符合预期）
+
+---
+
+### 当前状态评估
+
+**演示就绪度：~90%**
+
+核心功能全部完整：
+- ✅ 6角色加入、实时显示人数
+- ✅ 意图提交 + 实时广播
+- ✅ Claude 合成（90s timeout + Vercel 120s maxDuration）
+- ✅ 归因 overlay（data-source + hover tooltip）
+- ✅ 全员自动跳转结果页
+- ✅ 多轮迭代历史（R1/R2/R3 切换）
+- ✅ 继续迭代闭环（reset → 重新收集）
+- ✅ 下载 HTML 功能
+- ✅ 演示示例意图（click-to-fill）
+- ✅ 入口页产品说明
+
+剩余缺口（不影响演示，但需注意）：
+- ⚠️ `.env.local` 需手动配置（SUPABASE_URL/KEY + ANTHROPIC_API_KEY）
+- ⚠️ 尚未 git commit + push（所有改动本地未推送）
+- ⚠️ 未做过真实端到端测试（需要真实 API Keys 才能验证合成质量）
+- ⚠️ participants 只能检测加入，无法检测离线（不影响核心流程）
+
+---
+
+### 下一步优先级
+
+1. **配置 .env.local 并测试端到端流程**（最高优先级）
+   - 确认合成产物有正确 data-source 属性
+   - 确认 iframe 内样式正常（纯 inline CSS，无 CDN 依赖）
+
+2. **git commit + push**
+   - 推送到 https://github.com/Cosmofang/deepwork
+   - commit 信息涵盖 3 轮改动
+
+3. **演示彩排**（2026-04-29 前）
+   - 按 demo-script.md 跑完整流程
+   - 确认 Supabase Realtime 在多标签页正常广播

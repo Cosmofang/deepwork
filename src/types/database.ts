@@ -12,9 +12,40 @@ export interface Database {
         Update: { name?: string; role?: string; color?: string };
       };
       intents: {
-        Row: { id: string; room_id: string; participant_id: string; content: string; created_at: string };
-        Insert: { room_id: string; participant_id: string; content: string; id?: string; created_at?: string };
-        Update: { content?: string };
+        Row: {
+          id: string;
+          room_id: string;
+          participant_id: string;
+          section: string;
+          content: string;
+          created_at: string;
+        };
+        Insert: {
+          room_id: string;
+          participant_id: string;
+          section?: string;
+          content: string;
+          id?: string;
+          created_at?: string;
+        };
+        Update: { section?: string; content?: string };
+      };
+      room_sections: {
+        Row: {
+          id: string;
+          room_id: string;
+          name: string;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          room_id: string;
+          name: string;
+          created_by?: string | null;
+          id?: string;
+          created_at?: string;
+        };
+        Update: never;
       };
       synthesis_results: {
         Row: {

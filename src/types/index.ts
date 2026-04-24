@@ -13,9 +13,18 @@ export interface Intent {
   id: string;
   room_id: string;
   participant_id: string;
+  section: string;
   content: string;
   created_at: string;
   participant?: Participant;
+}
+
+export interface RoomSection {
+  id: string;
+  room_id: string;
+  name: string;
+  created_by: string | null;
+  created_at: string;
 }
 
 export interface Room {
