@@ -42,6 +42,7 @@ export default function RoomPage() {
   const [requestError, setRequestError] = useState('');
   const [synthesizing, setSynthesizing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [populating, setPopulating] = useState(false);
   const intentsEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
@@ -250,6 +251,18 @@ export default function RoomPage() {
       setSectionFilter(normalized);
       setSectionDraft('');
     })();
+  };
+
+  const populateDemo = async () => {
+    if (populating) return;
+    setPopulating(true);
+    setRequestError('');
+    await fetch('/api/demo/populate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId: id }),
+    }).catch(() => null);
+    setPopulating(false);
   };
 
   const triggerSynthesis = async () => {
@@ -539,6 +552,16 @@ export default function RoomPage() {
                   清空 {totalNewCount} 条新标记
                 </button>
               )}
+              {participants.length < 6 && intents.length > 0 && (
+                <button
+                  onClick={populateDemo}
+                  disabled={populating}
+                  className="px-3 py-1.5 rounded-full text-xs border border-dashed border-white/15 text-gray-600 hover:text-gray-400 hover:border-white/25 transition-colors disabled:opacity-30"
+                  title="为缺席角色填充示例意图"
+                >
+                  {populating ? '...' : `补全 ${6 - participants.length} 个角色`}
+                </button>
+              )}
               <button
                 onClick={triggerSynthesis}
                 disabled={intents.length === 0 || synthesizing || roomStatus === 'synthesizing'}
@@ -699,10 +722,27 @@ export default function RoomPage() {
                   <p className="text-gray-300 text-sm">AI 正在合成当前共识</p>
                   <p className="text-xs text-gray-600 mt-1">通常需要 15-30 秒</p>
                 </div>
-              ) : (
+              ) : intents.length > 0 ? (
                 <div>
                   <p className="text-sm text-gray-300">当前已经收集 {intents.length} 条协作输入</p>
                   <p className="text-xs text-gray-600 mt-1">准备好后点击上方「合成」生成最新 HTML</p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm text-gray-500 mb-3">还没有意图</p>
+                  <button
+                    onClick={populateDemo}
+                    disabled={populating}
+                    className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-white/15 text-gray-500 hover:text-white hover:border-white/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {populating ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="w-3 h-3 border border-gray-500 border-t-white rounded-full animate-spin" />
+                        填充中...
+                      </span>
+                    ) : '⚡ 一键填充演示数据'}
+                  </button>
+                  <p className="text-[10px] text-gray-700 mt-2">为所有缺席角色创建示例意图</p>
                 </div>
               )}
             </div>
