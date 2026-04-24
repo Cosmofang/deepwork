@@ -177,4 +177,49 @@ wwebjs.dev = WhatsApp Web 自动化库（Node.js，通过 Puppeteer 挂载）
 
 ---
 
+## 八、Day 1 工程进展（2026-04-24）
+
+### 完成内容
+脚手架搭建完毕，构建通过，已推送至 github.com/Cosmofang/deepwork。
+
+| 文件 | 说明 |
+|---|---|
+| `src/app/page.tsx` | 入场页：名字 + 6角色选择 + 房间代码 |
+| `src/app/room/[id]/page.tsx` | 意图板：三栏布局 + Supabase Realtime 实时同步 |
+| `src/app/room/[id]/result/page.tsx` | 合成结果页 + hover 归因 overlay |
+| `src/app/api/synthesize/route.ts` | Claude claude-opus-4-7 合成引擎 API |
+| `supabase/schema.sql` | 4张表 + RLS + Realtime 配置 |
+
+### 启动步骤（程序员执行）
+1. 在 supabase.com 创建项目，在 SQL Editor 执行 `supabase/schema.sql`
+2. 复制 `.env.local.example` 为 `.env.local`，填入三个 key
+3. `npm run dev` 验证本地运行
+
+---
+
+## 九、当前判断与风险（Claude 视角，2026-04-24）
+
+### 判断一：Demo 需要"对比"而非只有"过程"
+
+目前系统展示的是过程（6人输入 → AI合成），但评审需要感受到"为什么多人比单人更好"。
+
+**建议**：在合成结果页加入"单人版本对比"功能——点击某个角色，预览仅用该角色意图生成的版本。对比出来，合成的价值才是可见的，而不只是被声称的。
+
+### 判断二：合成引擎的 prompt 是现在最薄弱的地方
+
+当前 prompt 是合理的起点，但没有经过任何测试。真正决定 demo 成败的是那 15-30 秒 Claude 在干什么。风险是生成一个"把所有意图都堆进去"的拥挤页面，而不是真正有取舍的合成。
+
+**行动项**：今晚用真实 6 份意图跑 5-10 次测试，评估结果质量，必要时调整 prompt。
+
+### 判断三：项目有一个未被充分利用的叙事优势
+
+笔记里的三段理论（神经系统隐喻、参与劳动缓解异化、分布式决策）构成了完整的思想框架，比大多数 hackathon 项目深很多。这个框架目前只在创始人脑子里，没有进入产品展示。
+
+**建议**：Demo 当天用 1 分钟把这个框架讲出来，再展示系统。这能让评审感受到这是一个有思想的产品，而不只是一个有趣的工具。叙事顺序：问题洞察（异化）→ 框架（意图+合成）→ 系统演示 → 合成对比。
+
+### 未解问题：WhatsApp 方向
+用户曾问及 wwebjs.dev（WhatsApp Web 自动化库），方向未展开，待澄清。
+
+---
+
 *此文件由 Claude Code 根据对话内容自动整理，持续更新中。*
