@@ -11,8 +11,9 @@ const ROLE_DATA = Object.fromEntries(
   Object.entries(ROLES).map(([k, v]) => [k, { label: v.label, color: v.color }])
 );
 
-function injectAttribution(html: string): string {
-  const script = `
+function injectAttribution(html: string, mode: 'hover' | 'always' = 'hover'): string {
+  const clearOutlineOnLeave = mode === 'hover' ? "this.style.outline = '2px solid transparent';" : '';
+  const baseScript = `
 <style>
   [data-source] { transition: outline 0.2s; outline: 2px solid transparent; outline-offset: 3px; cursor: default; }
   [data-source]:hover { outline-width: 2px; }
@@ -34,12 +35,38 @@ function injectAttribution(html: string): string {
       tip.style.opacity = '1';
     });
     el.addEventListener('mouseleave', function() {
-      this.style.outline = '2px solid transparent';
+      ${clearOutlineOnLeave}
       tip.style.opacity = '0';
     });
   });
 })();
 <\/script>`;
+
+  const alwaysOnScript = mode === 'always' ? `
+<script>
+(function() {
+  var ROLES = ${JSON.stringify(ROLE_DATA)};
+  document.querySelectorAll('[data-source]').forEach(function(el) {
+    var role = el.getAttribute('data-source');
+    var r = ROLES[role];
+    if (!r) return;
+    el.style.outline = '2px solid ' + r.color + '55';
+    el.style.outlineOffset = '3px';
+    if (window.getComputedStyle(el).position === 'static') el.style.position = 'relative';
+    var badge = document.createElement('div');
+    badge.style.cssText = 'position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;gap:5px;background:rgba(0,0,0,0.75);border:1px solid rgba(255,255,255,0.12);border-radius:999px;padding:3px 10px 3px 6px;font-size:11px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-weight:600;letter-spacing:0.02em;z-index:9998;pointer-events:none;';
+    badge.style.color = r.color;
+    var dot = document.createElement('span');
+    dot.style.cssText = 'width:6px;height:6px;border-radius:50%;flex-shrink:0;';
+    dot.style.background = r.color;
+    badge.appendChild(dot);
+    badge.appendChild(document.createTextNode(r.label));
+    el.appendChild(badge);
+  });
+})();
+<\/script>` : '';
+
+  const script = baseScript + alwaysOnScript;
 
   if (html.includes('</body>')) {
     return html.replace('</body>', script + '</body>');
@@ -65,6 +92,7 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
   const [recommendedActions, setRecommendedActions] = useState<DeepWorkRecommendedAction[]>([]);
+  const [attributionMode, setAttributionMode] = useState<'hover' | 'always'>('hover');
   const supabase = createClient();
 
   const activeResult = allResults.find(r => r.round === activeRound) ?? allResults[allResults.length - 1] ?? null;
@@ -184,7 +212,17 @@ export default function ResultPage() {
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-600">悬停区块查看归因</span>
+          <button
+            onClick={() => setAttributionMode(m => m === 'hover' ? 'always' : 'hover')}
+            className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
+            style={
+              attributionMode === 'always'
+                ? { borderColor: 'rgba(168,85,247,0.4)', color: '#a855f7', backgroundColor: 'rgba(168,85,247,0.08)' }
+                : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgb(75,85,99)', backgroundColor: 'transparent' }
+            }
+          >
+            {attributionMode === 'always' ? '归因常亮 ✓' : '归因: 悬停'}
+          </button>
           <button
             onClick={() => downloadHtml(activeResult.html_content, activeResult.round, id)}
             className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-colors"
@@ -198,8 +236,8 @@ export default function ResultPage() {
         {/* HTML preview */}
         <div className="flex-1">
           <iframe
-            key={activeResult.id}
-            srcDoc={injectAttribution(activeResult.html_content)}
+            key={activeResult.id + attributionMode}
+            srcDoc={injectAttribution(activeResult.html_content, attributionMode)}
             className="w-full h-full border-0"
             title="合成产物"
             sandbox="allow-scripts"

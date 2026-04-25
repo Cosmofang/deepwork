@@ -4,6 +4,43 @@
 
 ---
 
+## 第二十三轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+第二十二轮把 `recommendedNextActions` 接入结果页侧边栏，协议→UI 的信息流已经闭环。本轮扫描 demo 场景的交互层，发现最高优先级缺口：归因可视化仍然是 hover-only。在 demo 现场，演示者无法同时悬停在所有 section 上，观众看不到”谁做了哪个区块”的全图——而这正是 DeepWork 多角色协作核心价值的最直观呈现。
+
+### 本轮完成的改动
+
+#### ✅ 结果页归因常亮模式（Attribution Always-On Toggle）
+
+**文件**：`src/app/room/[id]/result/page.tsx`
+
+- 新增 `attributionMode` state：`'hover' | 'always'`，默认 `'hover'`
+- 修改 `injectAttribution(html, mode)` 支持两种模式：
+  - **hover 模式**（原有）：鼠标进入显示彩色 outline + 底部 tooltip；离开清除 outline
+  - **always 模式**：`mouseleave` 不再清除 outline；额外注入第二段 `<script>`，页面加载后立刻给所有 `[data-source]` section 加上永久彩色 outline（`color + '55'`）并在左上角追加角色 badge pill（黑底玻璃质感，带彩色小圆点 + 角色中文名）
+- 替换原来的静态文字”悬停区块查看归因”为可点击切换按钮：
+  - 悬停模式：灰色边框 + 灰色文字”归因: 悬停”
+  - 常亮模式：紫色边框 + 紫色文字”归因常亮 ✓”（`#a855f7`）
+- `<iframe key={activeResult.id + attributionMode} ...>`：切换模式强制重新加载 iframe，避免残留旧脚本状态
+
+#### ✅ 构建验证
+
+`npm run build` 通过，result page bundle 从 5.09 kB → 5.49 kB。
+
+### 为什么这是方向正确的改动
+
+在 demo 演示中，一键点击”归因常亮”可以让所有区块同时亮起对应角色颜色和 badge，观众瞬间看到整个页面是如何被 6 个角色协作完成的。这比”请看，我现在悬停在每一个 section 上……”的演示方式更有冲击力，直接让 DeepWork 的核心价值主张可视、可感。
+
+### 下一步建议
+
+1. **P0 — demo 端到端演练**（4/29 前）：配置 `.env.local`，验证”意图→合成→冲突显示→继续迭代”的完整流程，测试归因常亮在实际合成产物上的效果
+2. **P1 — 双机器 curl 测试**：POST `conflict.detected` → GET `/api/workspace` → 验证 UI 侧边栏出现 P0 卡片
+3. **P2 — 主页角色描述**：入口页面 6 个角色按钮可增加 `typical` 描述文字，降低新参与者的认知门槛
+
+---
+
 ## 第二十二轮分析 — 2026/04/25
 
 ### 本轮扫描结论
