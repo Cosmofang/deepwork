@@ -6,7 +6,10 @@ import { ROLES } from '@/lib/roles';
 import { Intent, Participant, RoleId, Room, RoomSection, SynthesisResult } from '@/types';
 import {
   DEEPWORK_SUPPORTED_EVENT_TYPES,
+  DeepWorkArtifactUpdatedEvent,
   DeepWorkProjectKey,
+  DeepWorkSnapshot,
+  DeepWorkPatchEvent,
   DeepWorkSemanticEvent,
   toSemanticEventType,
 } from '@/types/deepwork-protocol';
@@ -49,7 +52,7 @@ export interface RoomStateEvent {
   actorIds?: string[];
 }
 
-interface RoomSnapshot {
+export interface RoomSnapshot {
   meta: {
     roomId: string;
     updatedAt: string;
@@ -393,6 +396,110 @@ function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWork
     default:
       throw new Error(`Unsupported DeepWork semantic event type: ${type}`);
   }
+}
+
+function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSemanticEvent[] = []): DeepWorkSnapshot {
+  const proposedPatches = recentEvents.filter(
+    (event): event is DeepWorkPatchEvent => event.type === 'patch.proposed'
+  );
+
+  const latestArtifacts = recentEvents
+    .filter((event): event is DeepWorkArtifactUpdatedEvent => event.type === 'artifact.updated')
+    .map(event => ({
+      id: event.id,
+      type: event.artifactType,
+      path: event.artifactPath || 'unknown',
+      updatedAt: event.recordedAt,
+      attributionMap: event.attributionMap,
+    }));
+
+  if (snapshot.latestSynthesis && latestArtifacts.length === 0) {
+    latestArtifacts.push({
+      id: snapshot.latestSynthesis.id,
+      type: 'html',
+      path: `.deepwork/rooms/${sanitizeRoomId(snapshot.meta.roomId)}/latest.html`,
+      updatedAt: snapshot.latestSynthesis.createdAt,
+      attributionMap: snapshot.latestSynthesis.attributionMap,
+    });
+  }
+
+  const recommendedNextActions: string[] = [];
+  if (snapshot.intents.length === 0) {
+    recommendedNextActions.push('Collect at least one human or agent intent before synthesis.');
+  }
+  if (!snapshot.latestSynthesis && snapshot.intents.length > 0) {
+    recommendedNextActions.push('Run synthesis to turn the current intent set into an attributed artifact.');
+  }
+  if (proposedPatches.length > 0) {
+    recommendedNextActions.push('Review proposed patches and record decision.accepted or patch.applied events for accepted changes.');
+  }
+
+  const contributorsBySection = new Map<string, Set<string>>();
+  snapshot.intents.forEach(intent => {
+    if (!intent.participant?.id) return;
+    const section = normalizeSectionName(intent.section || DEFAULT_SECTION);
+    const contributors = contributorsBySection.get(section) ?? new Set<string>();
+    contributors.add(intent.participant.id);
+    contributorsBySection.set(section, contributors);
+  });
+
+  return {
+    meta: {
+      projectId: 'deepwork',
+      roomId: snapshot.meta.roomId,
+      protocolVersion: '0.1',
+      snapshotVersion: 1,
+      updatedAt: snapshot.meta.updatedAt,
+    },
+    goal: 'Turn human and agent intent into shared, attributed project artifacts.',
+    positioning: 'DeepWork is a shared project state and intent protocol for human-agent collaboration.',
+    actors: snapshot.participants.map(participant => ({
+      id: participant.id,
+      type: 'human',
+      name: participant.name,
+      role: participant.role,
+      trustLevel: 'trusted',
+    })),
+    sections: snapshot.sections.map(section => ({
+      name: section.name,
+      status: 'active',
+      summary: section.preview,
+      totalIntents: section.total,
+      contributors: Array.from(contributorsBySection.get(section.name) ?? []),
+      updatedAt: section.latestAt,
+    })),
+    recentIntents: snapshot.intents.slice(-20).map(intent => ({
+      id: intent.id,
+      section: intent.section,
+      content: intent.content,
+      actorId: intent.participant?.id,
+      createdAt: intent.createdAt,
+    })),
+    decisions: recentEvents
+      .filter(event => event.type === 'decision.accepted')
+      .map(event => ({
+        id: event.decisionId || event.id || event.recordedAt,
+        title: event.title || event.summary,
+        value: event.value || event.summary,
+        status: 'accepted' as const,
+        acceptedAt: event.recordedAt,
+      })),
+    proposedPatches,
+    latestArtifacts,
+    unresolvedConflicts: recentEvents
+      .filter(event => event.type === 'conflict.detected')
+      .map(event => ({
+        id: event.conflictId || event.id,
+        summary: event.summary,
+        sections: event.sections,
+        actorIds: event.actorIds,
+      })),
+    recommendedNextActions,
+  };
+}
+
+export function toDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSemanticEvent[] = []): DeepWorkSnapshot {
+  return buildDeepWorkSnapshot(snapshot, recentEvents);
 }
 
 export async function syncRoomStateToWorkspace(roomId: string, event?: RoomStateEvent) {

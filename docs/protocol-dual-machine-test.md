@@ -35,9 +35,11 @@ If any of those fields differ between machines, the test has not established a s
 
 ## Step 1: Create Or Select A Test Room
 
+`GET /api/workspace?roomId=<ROOM_ID>` now returns a protocol-level `DeepWorkSnapshot`, not the internal room database shape. Agents should read `snapshot.actors`, `snapshot.sections`, `snapshot.recentIntents`, `snapshot.decisions`, `snapshot.proposedPatches`, `snapshot.latestArtifacts`, `snapshot.unresolvedConflicts`, and `snapshot.recommendedNextActions`. The response also includes `projectKey`, `recentEvents`, and `source`.
+
 Start the app and create a room, or choose an existing demo room. Run the demo populate action or add at least one real participant and one intent so `.deepwork/project.json` and `.deepwork/rooms/<ROOM_ID>/snapshot.json` exist.
 
-Machine A should call `GET /api/workspace?roomId=<ROOM_ID>` and record the returned `projectKey.updatedAt`, `snapshot.meta.updatedAt`, participant count, intent count, and source field. Machine B should call the same endpoint and confirm it sees the same room ID and counts.
+Machine A should call `GET /api/workspace?roomId=<ROOM_ID>` and record the returned `projectKey.updatedAt`, `snapshot.meta.updatedAt`, `snapshot.actors.length`, `snapshot.recentIntents.length`, `snapshot.sections.length`, and source field. Machine B should call the same endpoint and confirm it sees the same room ID and semantically equivalent counts.
 
 Success condition: both machines can independently read the same room state through the workspace reader API.
 
@@ -67,7 +69,24 @@ Success condition: Machine B identifies the new positioning requirement and link
 
 Machine B should propose a small patch, ideally a documentation or copy change, and record it as `patch.proposed` before or alongside applying it. The semantic record should include `summary`, `reason`, `linkedIntents` if an intent ID is available, `affectedSections`, `affectedFiles`, and `status`.
 
-Current code has event type support for `patch.proposed`, but a first-class HTTP writer path may still be missing. Until that endpoint exists, this step can be performed by a small script or direct server-side call to `syncRoomStateToWorkspace(roomId, event)`. The important product behavior is that the patch meaning becomes a structured event, not only a Git diff or chat message.
+Current code provides a first-class writer path: `POST /api/workspace/events`. Use it for non-destructive semantic records from external agents. Example request:
+
+```json
+{
+  "roomId": "<ROOM_ID>",
+  "event": {
+    "type": "patch.proposed",
+    "summary": "Reframe homepage copy around shared project state and intent protocol.",
+    "reason": "The latest intent changes the product narrative from landing-page demo to agent-readable collaboration layer.",
+    "linkedIntents": ["<INTENT_ID>"],
+    "affectedSections": ["产品定位", "首页首屏"],
+    "affectedFiles": ["src/app/page.tsx", "README.md"],
+    "status": "proposed"
+  }
+}
+```
+
+The endpoint validates the event type and required semantic fields, appends the event to `events.ndjson`, refreshes `project.json` / `rooms/index.json` metadata, and returns the recorded event. Patch events must include a non-empty `summary` plus at least one of `linkedIntents`, `affectedSections`, or `affectedFiles`; this prevents agents from writing vague patch records that cannot guide another machine. The important product behavior is that the patch meaning becomes a structured event, not only a Git diff or chat message.
 
 Success condition: Machine A can read the patch record and explain what Machine B proposed and why without reading Machine B's chat transcript.
 
@@ -79,7 +98,7 @@ Success condition: both machines can discover the latest artifact from shared pr
 
 ## Step 6: Convergence Check
 
-Both machines should independently refresh the workspace reader endpoint and compare: room ID, snapshot update time, total intents, total sections, latest synthesis round if present, and the most recent semantic event type. If local `.deepwork` files are used, compare the same fields from `project.json`, `snapshot.json`, and `events.ndjson`.
+Both machines should independently refresh the workspace reader endpoint and compare: room ID, snapshot update time, total recent intents, total sections, latest artifact if present, latest synthesis round if discoverable, and the most recent semantic event type. If local `.deepwork` files are used, compare the same fields from `project.json`, `snapshot.json`, and `events.ndjson`.
 
 Success condition: both machines report the same project state summary and can describe the latest requirement, patch, and artifact in compatible language.
 

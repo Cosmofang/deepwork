@@ -934,3 +934,144 @@ POST /api/workspace/events
 3. **`RoomSnapshot` 对齐 `DeepWorkSnapshot`**：`GET /api/workspace` snapshot 字段目前是内部格式，不完全符合协议定义的 `DeepWorkSnapshot` 结构
 
 _下次更新：下轮自动分析时_
+
+---
+
+## 第十四轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+本轮重点接着第十三轮的 `POST /api/workspace/events` 检查协议写入闭环。当前 `GET /api/workspace` 已能返回 snapshot、projectKey 和 recentEvents；`POST /api/workspace/events` 也能让外部 agent 追加 `patch.proposed`、`artifact.updated` 等非破坏性语义事件。这个方向正确，但发现一个细节风险：writer endpoint 只追加 `events.ndjson`，没有同步刷新 `.deepwork/project.json` 的 `updatedAt`、`currentRoomId`、`eventsPath`，也没有刷新 rooms index。结果是 Machine B 写入 patch 后，Machine A 通过 recentEvents 可以看到新事件，但如果它只看 project key / index 的更新时间，可能误判“共享项目状态没有变化”。
+
+### 本轮完成的改动
+
+#### ✅ Workspace event writer 同步刷新 project key / rooms index
+
+**文件**：`src/app/api/workspace/events/route.ts`
+
+新增 `updateWorkspaceMetadata()`：
+
+- 在 append `events.ndjson` 后刷新 `.deepwork/project.json`
+- 保证 `currentRoomId`、`currentSnapshotPath`、`eventsPath`、`realtimeChannel`、`supportedEventTypes`、`outputs`、`permissions` 与当前 room 对齐
+- 刷新 `.deepwork/rooms/index.json` 中对应 room 的 `updatedAt`
+- 如果当前 room 已有 `snapshot.json`，同步更新 snapshot meta 的 `updatedAt`
+
+这让外部 agent 写入事件后，不只是事件流变化，发现层（project key）也会体现“项目状态刚被更新”。对双机器测试来说，这更接近一个可靠的 shared project state protocol：Machine A 可以通过 project key 更新时间、recentEvents、eventsPath 三个维度确认 Machine B 的写入。
+
+### 为什么这是安全且方向正确的小改动
+
+它不改变数据库，不触发合成，也不允许外部 agent 做破坏性写入；只是补齐事件写入后的元数据同步。对现有 UI 基本无影响，但提高了协议层的一致性，尤其是 cross-machine / cross-agent 可读性。
+
+### 验证状态
+
+已静态复核 `src/app/api/workspace/events/route.ts`。本轮改动是 TypeScript 代码，仍需运行 `npm run build` 做完整验证；如果通过，应提交并 push。由于当前自动任务环境未能保证 shell 可用，本轮暂未声明构建成功。
+
+### 下一步建议
+
+1. 运行 `npm run build` 验证本轮 writer metadata 改动。
+2. 如果构建通过，提交并 push。
+3. 用一个真实或模拟 room 执行：`GET /api/workspace` → `POST /api/workspace/events { type: patch.proposed }` → 再 `GET /api/workspace`，确认 recentEvents 增加、projectKey.updatedAt 变化、eventsPath 指向正确 room。
+4. 后续再考虑把 `GET /api/workspace` 的 snapshot 从内部 `RoomSnapshot` 逐步转换成协议定义的 `DeepWorkSnapshot`。
+
+_下次更新：下轮自动分析时_
+
+---
+
+## 第十五轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+本轮接着第十四轮的 `POST /api/workspace/events` 检查 writer path。当前协议层已经有 reader API、recentEvents、agent event writer、project key metadata refresh；这说明双机器测试需要的“读 + 写 + 发现层更新时间”基本齐了。
+
+本轮发现的主要风险是：writer endpoint 虽然限制了允许的事件类型，但对事件内容的语义字段校验偏弱。例如外部 agent 可以写入一个只有 `type: "patch.proposed"` 的事件，而没有 `summary`、`affectedFiles`、`affectedSections` 或 `status`。这种事件虽然技术上能 append 到 `events.ndjson`，但对另一个 agent 没有足够语义，容易退回“事件流存在，但不能指导协作”的状态。
+
+此外，`docs/protocol-dual-machine-test.md` 仍然保留了“first-class HTTP writer path may still be missing”的旧描述，已经落后于第十三、十四轮实现。
+
+### 本轮完成的改动
+
+#### ✅ Workspace event writer 增加语义校验
+
+**文件**：`src/app/api/workspace/events/route.ts`
+
+新增 `validateWorkspaceEvent()`，对外部 agent 写入的事件做最小语义约束：
+
+- 所有允许事件都必须有非空 `summary`。
+- `intent.created` 必须有非空 `section` 和 `content`。
+- `patch.proposed` / `patch.applied` 会校验 `status` 值，并校验 `linkedIntents`、`affectedSections`、`affectedFiles` 如果存在则必须是非空字符串数组；默认状态分别是 `proposed` / `applied`。
+- `artifact.updated` 会校验 `artifactType` 是否属于 `html | markdown | doc | code | other`，缺省为 `other`。
+- `decision.accepted` 必须有非空 `value`。
+
+这让 `/api/workspace/events` 从“能写入任意近似事件”前进到“能拒绝明显无语义价值的事件”。对双机器/双 agent 协作来说，这是治理层的一小步：agent 可以写，但必须写出另一个 agent 能理解的最低限度语义。
+
+#### ✅ 双机器测试文档更新
+
+**文件**：`docs/protocol-dual-machine-test.md`
+
+更新 Step 4：明确现在应通过 `POST /api/workspace/events` 写入 `patch.proposed`，并加入完整 JSON 示例。文档也记录该 endpoint 会校验事件类型和必需语义字段、追加 `events.ndjson`、刷新 `project.json` / `rooms/index.json` metadata。
+
+### 为什么这是安全且方向正确的小改动
+
+该改动不改变数据库 schema，不触发合成，不改变现有 UI，也不允许 destructive write。它只是在外部 agent 进入共享事件流之前增加轻量协议校验，避免 shared state 被低质量事件污染。DeepWork 的长期目标是 agent-readable shared project state；如果事件缺少可读语义，协议就会失去价值。
+
+### 验证状态
+
+已静态复核 `src/app/api/workspace/events/route.ts` 和 `docs/protocol-dual-machine-test.md`。本轮改动涉及 TypeScript route 代码，应继续运行 `npm run build` 或 `npx tsc --noEmit` 做编译验证，并在通过后 commit + push。
+
+尝试启动隔离 worktree 子代理做二次静态检查失败，原因仍是当前 Cowork 挂载路径未被 agent 工具识别为可创建 worktree 的 git repo；因此本轮采用主会话静态复核。真实端到端仍依赖 `.env.local` 中的 Supabase 与 Anthropic key。
+
+### 下一步建议
+
+1. 运行 `npm run build` 验证 writer validation 改动。
+2. 如果通过，提交并 push 第十四、十五轮 writer path 改动。
+3. 用一个模拟 room 执行负向测试：缺少 `summary` 的 `patch.proposed` 应返回 400；完整 `patch.proposed` 应返回 201，并出现在 `recentEvents` 中。
+4. 后续可把 `GET /api/workspace` 的 snapshot 从内部 `RoomSnapshot` 逐步转换成协议定义的 `DeepWorkSnapshot`，让 Machine B 的读取上下文更语义化。
+
+---
+
+## 第十六轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+本轮接着第十四、十五轮未完成的 writer path 验证继续推进。当前代码已经从 demo 层进入协议层：`GET /api/workspace` 返回协议级 `DeepWorkSnapshot`、`recentEvents` 和 `projectKey`；`POST /api/workspace/events` 允许外部 agent 写入非破坏性语义事件；`docs/protocol-dual-machine-test.md` 已经把双机器测试路径写成可执行流程。
+
+本轮重点检查 `src/app/api/workspace/events/route.ts`、`src/app/api/workspace/route.ts`、`src/lib/room-state.ts`、`src/types/deepwork-protocol.ts` 和双机器测试文档。结论是 writer path 方向正确，但第十五轮的语义校验还可以再收紧：`patch.proposed` 仍允许没有任何 `linkedIntents`、`affectedSections`、`affectedFiles` 的事件通过，这种 patch 对另一个 agent 不够可执行；`artifact.updated`、`conflict.detected`、`summary.updated` 也可以更明确地保留可读字段。
+
+### 本轮完成的改动
+
+#### ✅ Workspace event writer 语义校验加固
+
+**文件**：`src/app/api/workspace/events/route.ts`
+
+新增和调整：
+
+- 新增 `assertOptionalString()`，确保可选字符串一旦提供就不能是空白字符串。
+- 新增 `hasSemanticLinkage()`，要求 `patch.proposed` / `patch.applied` 至少包含 `linkedIntents`、`affectedSections`、`affectedFiles` 中的一类，否则返回 400。
+- `patch` 事件现在会校验 `reason`（如果提供）必须是非空字符串。
+- `artifact.updated` 现在保留并校验 `artifactPath`（如果提供）以及 `attributionMap`。
+- `summary.updated` 现在保留并校验可选 `section`。
+- `conflict.detected` 现在保留并校验 `conflictId`、`sections`、`actorIds`。
+
+这一步的目的不是让协议变重，而是防止外部 agent 写入“看起来合法但没有协作价值”的事件。DeepWork 的核心是 agent-readable shared state；如果 patch 事件不能说明它关联哪个 intent、影响哪个 section 或文件，另一个机器就无法可靠继续工作。
+
+#### ✅ 双机器测试文档同步更新
+
+**文件**：`docs/protocol-dual-machine-test.md`
+
+Step 4 现在明确记录：`POST /api/workspace/events` 写入 patch 时必须有非空 `summary`，并且必须至少包含 `linkedIntents`、`affectedSections`、`affectedFiles` 中的一类。这与代码中的治理规则保持一致。
+
+### 为什么这是安全且方向正确的小改动
+
+本轮没有改数据库 schema，不触发合成，不改变 UI，也不允许 destructive write。它只加强外部 agent 写入共享事件流前的语义门槛。对于 Claude + OpenClaw 双机器测试，这能更清楚地区分“事件流有记录”和“事件流能指导另一个 agent 行动”。后者才是 DeepWork 作为共享项目状态与意图协议的关键。
+
+### 验证状态
+
+已静态复核本轮修改的 TypeScript route 与文档。由于当前自动任务会话尚未成功执行 shell，本轮仍需要补跑 `npm run build` 或 `npx tsc --noEmit`。真实 HTTP 负向测试建议如下：缺少 `summary` 的 `patch.proposed` 应返回 400；只有 `summary` 但没有 `linkedIntents` / `affectedSections` / `affectedFiles` 的 `patch.proposed` 应返回 400；包含 `summary` + `affectedFiles` 的完整 `patch.proposed` 应返回 201，并出现在 `GET /api/workspace?roomId=...` 的 `recentEvents` 中。
+
+### 下一步建议
+
+1. 运行 `npm run build` 验证第十四到十六轮 writer path 改动。
+2. 如果通过，提交并 push 当前改动。
+3. 用 `POST /api/workspace/events` 做一次最小双机器模拟测试：Machine A 写 `intent.created`，Machine B 读取 `recentEvents` 后写 `patch.proposed`，Machine A 再读取并解释 patch。
+4. 后续可继续把 `DeepWorkSnapshot.recommendedNextActions` 做得更智能：根据最近事件自动提示“需要 review patch”“需要 synthesis”“需要 decision.accepted”。
+
+_下次更新：下轮自动分析时_
