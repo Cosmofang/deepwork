@@ -28,21 +28,60 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: roomError.message }, { status: 500 });
   }
 
-  // Find roles already represented in the room
+  // Find roles already represented in the room (with their participant IDs)
   const { data: existing } = await supabase
     .from('participants')
-    .select('role')
+    .select('id, role')
     .eq('room_id', roomId);
 
-  const existingRoles = new Set((existing ?? []).map(p => p.role as RoleId));
+  const existingParticipants = existing ?? [];
+  const existingRoles = new Set(existingParticipants.map(p => p.role as RoleId));
   const missingRoles = ROLE_IDS.filter(r => !existingRoles.has(r));
-
-  if (missingRoles.length === 0) {
-    return NextResponse.json({ added: 0, intents: 0 });
-  }
 
   let totalIntents = 0;
   const workspaceEvents: RoomStateEvent[] = [];
+
+  // For existing participants with 0 submitted intents, fill their demo intents too.
+  // This lets a solo presenter click "一键填充" and get full 6-role attribution.
+  if (existingParticipants.length > 0) {
+    const { data: existingIntents } = await supabase
+      .from('intents')
+      .select('participant_id')
+      .eq('room_id', roomId);
+
+    const participantsWithIntents = new Set((existingIntents ?? []).map(i => i.participant_id as string));
+
+    for (const p of existingParticipants) {
+      if (participantsWithIntents.has(p.id)) continue;
+      const roleInfo = ROLES[p.role as RoleId];
+      if (!roleInfo) continue;
+
+      for (const demo of roleInfo.demoIntents) {
+        const section = normalizeSectionName(demo.section);
+        await supabase
+          .from('room_sections')
+          .upsert(
+            { room_id: roomId, name: section, created_by: p.id },
+            { onConflict: 'room_id,name' }
+          );
+        const { error: intentErr } = await supabase
+          .from('intents')
+          .insert({ room_id: roomId, participant_id: p.id, section, content: demo.content });
+        if (!intentErr) {
+          totalIntents++;
+          workspaceEvents.push({
+            type: 'intent_created',
+            participantId: p.id,
+            participantName: roleInfo.label,
+            role: p.role as RoleId,
+            section,
+            summary: demo.content,
+            content: demo.content,
+          });
+        }
+      }
+    }
+  }
 
   // For each missing role: create participant then submit their demo intents
   for (const roleId of missingRoles) {
