@@ -416,7 +416,7 @@ export default function RoomPage() {
               </div>
             )}
 
-            <p className="text-xs text-gray-700">通常 20–40 秒 · 完成后自动跳转</p>
+            <p className="text-xs text-gray-700">通常 30–90 秒 · 完成后自动跳转</p>
           </div>
         </div>
       )}
@@ -754,7 +754,7 @@ export default function RoomPage() {
                 <div>
                   <div className="w-8 h-8 border-2 border-white/10 border-t-white/60 rounded-full animate-spin mx-auto mb-4" />
                   <p className="text-gray-300 text-sm">AI 正在合成当前共识</p>
-                  <p className="text-xs text-gray-600 mt-1">通常需要 15-30 秒</p>
+                  <p className="text-xs text-gray-600 mt-1">通常需要 30–90 秒</p>
                 </div>
               ) : intents.length > 0 ? (
                 <div>

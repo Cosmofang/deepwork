@@ -92,7 +92,7 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
   const [recommendedActions, setRecommendedActions] = useState<DeepWorkRecommendedAction[]>([]);
-  const [attributionMode, setAttributionMode] = useState<'hover' | 'always'>('hover');
+  const [attributionMode, setAttributionMode] = useState<'hover' | 'always'>('always');
   const supabase = createClient();
 
   const activeResult = allResults.find(r => r.round === activeRound) ?? allResults[allResults.length - 1] ?? null;
