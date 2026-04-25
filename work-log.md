@@ -667,3 +667,76 @@ DeepWork 现在同时有两个层次：
 
 _下次更新：下轮自动分析时_
 
+---
+
+## 第九轮分析 — 2026/04/25
+
+### 团队代码扫描
+
+本轮启动时发现第八轮工作已由 text-only 循环完成协议文档，但 shell 命令未执行，build 未验证，reader API 未实现。
+
+本轮吸收的团队代码变更（已在 git status 中确认）：
+- `src/types/deepwork-protocol.ts`（新建）— 完整 TypeScript event/snapshot schema
+- `src/lib/room-state.ts`（大幅改写）— workspace sync 写入全部 5 种文件
+- `src/app/api/intents/route.ts`（更新）— 意图提交后触发 workspace sync
+- `src/types/index.ts`（更新）— re-export deepwork-protocol
+
+### 本轮完成的改动
+
+#### ✅ 构建验证（上轮遗留）
+`npm run build` ✅，10 路由全部编译通过，TypeScript 无报错
+
+#### ✅ 导出 loadSnapshot
+**文件**：`src/lib/room-state.ts` — `async function loadSnapshot` → `export async function loadSnapshot`
+
+供外部（reader API、测试脚本）直接调用，不需要完整的 sync 写入流程。
+
+#### ✅ 工作区 Reader API（完成第八轮建议 #1）
+**文件**：`src/app/api/workspace/route.ts`（新建）
+
+`GET /api/workspace?roomId=XXX` 返回：
+```json
+{
+  "snapshot": { "sections": [...], "intents": [...], "participants": [...], ... },
+  "projectKey": { "protocolVersion": "0.1", "eventsPath": "...", ... },
+  "source": "cache" | "live"
+}
+```
+cache-first（读 `.deepwork/rooms/{id}/snapshot.json`），cache miss → live Supabase read → 写缓存。
+
+任何外部 agent 一次 HTTP GET 即可理解当前项目完整状态。
+
+#### ✅ artifact.updated 事件（协议闭环）
+**文件**：`src/app/api/synthesize/route.ts`
+
+合成成功后，在 `synthesis.completed` 之后追加 `artifact.updated` 事件：
+- `artifactPath: '.deepwork/rooms/{roomId}/latest.html'`
+- `attributionMap`: 完整 section → roleId 归因映射
+
+现在每次合成，`events.ndjson` 包含：`synthesis.started` → `synthesis.completed` → `artifact.updated`。
+
+**构建验证：** ✅ 路由数 10 → 11（新增 /api/workspace），全部编译通过
+
+**Git：** 已提交 `320aff0`，推送因当前网络超时失败（Operation timed out）；commit 安全保存在本地，下次网络恢复后 push。
+
+---
+
+### DeepWork 协议层当前完整度
+
+| 层 | 状态 | 实现 |
+|---|---|---|
+| 事件 Schema | ✅ | `deepwork-protocol.ts` — 11 种事件类型 |
+| 状态写入 | ✅ | `room-state.ts` — snapshot/summary/events/artifact/project.json |
+| 状态读取 | ✅ | `GET /api/workspace` — cache-first, live fallback |
+| 事件发射 | ✅ | join/intents/sections/synthesize 全部接入 |
+| artifact 追踪 | ✅ | `artifact.updated` 含 artifactPath + attributionMap |
+| Project Key | ✅ | `.deepwork/project.json` 每次 sync 后更新 |
+
+### 下一步建议
+
+1. **演示彩排**（P0，4/29 前）：配置 `.env.local`，跑端到端完整流程，验证 `.deepwork/` 目录被正确写入
+2. **双机器测试文档**：写 `docs/protocol-dual-machine-test.md`，定义两台机器各执行什么、如何判断 convergence
+3. **RoomSnapshot 对齐 DeepWorkSnapshot**：reader 返回的是 `RoomSnapshot` 而非 `DeepWorkSnapshot`，后续可合并两者
+4. **网络恢复后 push commit `320aff0`**：`git push origin main`
+
+_下次更新：下轮自动分析时_
