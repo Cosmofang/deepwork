@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
-import { ROLES } from '@/lib/roles';
+import { ROLE_IDS, ROLES } from '@/lib/roles';
 import { DEFAULT_SECTION, DEFAULT_SECTIONS, normalizeSectionName } from '@/lib/sections';
 import { Intent, Participant, RoleId } from '@/types';
 
@@ -675,6 +675,37 @@ export default function RoomPage() {
           <div className="px-4 py-3 border-b border-white/10 flex-shrink-0">
             <span className="text-xs text-gray-500 uppercase tracking-wider">板块状态</span>
           </div>
+
+          {/* Role roster — shows which of the 6 roles have joined */}
+          <div className="px-4 py-3 border-b border-white/[0.06] flex-shrink-0">
+            <div className="flex flex-wrap gap-2">
+              {ROLE_IDS.map(roleId => {
+                const r = ROLES[roleId];
+                const joined = participants.some(p => p.role === roleId);
+                return (
+                  <div
+                    key={roleId}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border transition-colors"
+                    style={
+                      joined
+                        ? { borderColor: `${r.color}40`, backgroundColor: `${r.color}12`, color: r.color }
+                        : { borderColor: 'rgba(255,255,255,0.05)', color: '#4b5563' }
+                    }
+                  >
+                    <div
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: joined ? r.color : '#374151' }}
+                    />
+                    {r.label}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[10px] mt-2" style={{ color: participants.length >= 6 ? '#10b981' : '#374151' }}>
+              {participants.length >= 6 ? '全员就绪 ✓' : `${participants.length} / 6 位已加入`}
+            </p>
+          </div>
+
           <div className="flex-1 overflow-y-auto p-4">
             <div className="space-y-3">
               {sectionCards.map(card => {
