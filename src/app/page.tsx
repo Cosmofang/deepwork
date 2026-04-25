@@ -78,7 +78,7 @@ export default function EntryPage() {
             <div className="w-8 h-px bg-white/10" />
             <div className="flex flex-col items-center gap-1.5">
               <span className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 font-mono">3</span>
-              <span>AI 合成产物</span>
+              <span>AI 合成 + 归因</span>
             </div>
           </div>
         </div>
@@ -113,7 +113,8 @@ export default function EntryPage() {
                         : { borderColor: 'rgba(255,255,255,0.1)', color: '#9ca3af' }
                     }
                   >
-                    {r.label}
+                    <span className="block">{r.label}</span>
+                    <span className="mt-1 block text-[10px] font-normal leading-snug opacity-70">{r.typical}</span>
                   </button>
                 );
               })}
