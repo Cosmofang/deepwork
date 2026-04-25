@@ -818,3 +818,119 @@ _下次更新：下轮自动分析时_
 3. **`RoomSnapshot` 对齐 `DeepWorkSnapshot`**：`GET /api/workspace` 目前返回内部 `RoomSnapshot` 结构，长期应返回协议定义的 `DeepWorkSnapshot`
 
 _下次更新：下轮自动分析时_
+
+---
+
+## 第十二轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+本轮检查了上一轮之后的协议层关键文件：`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/route.ts`、`src/app/api/demo/populate/route.ts`、`src/app/api/intents/route.ts`、`src/app/api/synthesize/route.ts`，以及现有 `docs/plans/2026-04-25-autonomous-loop-and-agent-semantics.md`。
+
+当前状态比较明确：DeepWork demo 层已经接近演示完成，协议层已经有 project key、snapshot、semantic events、artifact.updated 和 reader API。上一轮建议里的最大空缺不是再加 UI，而是把 Claude + OpenClaw 双机器验证方式写清楚，让协议能被真实检验，而不是只停留在架构判断。
+
+### 本轮完成的改动
+
+#### ✅ 双机器协议测试文档
+
+**文件**：`docs/protocol-dual-machine-test.md`（新建）
+
+该文档把第一次 Claude + OpenClaw / 双机器测试拆成可执行流程：
+
+- 明确测试目的：验证 DeepWork 是 shared project state + intent protocol，而不只是 landing-page demo。
+- 明确核心假设：两台机器通过同一个 project key 和 canonical workspace state 汇合，不依赖互相复制聊天记录。
+- 定义 Machine A / Machine B 角色：A 负责把用户自然语言写成 `intent.created`，B 只读共享状态并提出 `patch.proposed` 或 artifact 变更。
+- 定义 canonical state contract：`projectId`、`protocolVersion`、`currentRoomId`、`eventsPath`、`currentSnapshotPath`、`supportedEventTypes` 必须一致。
+- 给出 6 步测试流程：创建房间、A 写入新需求、B 不看 transcript 读取状态、B 记录语义 patch、可选合成产物、双端 convergence check。
+- 记录关键失败模式：本地 `.deepwork` 分叉、chat-only coordination、raw snapshot 缺语义、代码变更缺 patch/artifact 事件。
+- 给出 test result template，方便后续每次双机器测试写回 `work-log.md`。
+
+### 为什么这是方向正确的小改动
+
+DeepWork 长期目标的关键不是“agent 能不能帮忙改代码”，而是“agent 能不能通过一个共享语义层理解彼此的需求、变更和产物”。双机器测试文档把这个目标变成了可验证协议：如果 B 只能靠人把 A 的聊天复制过去，那就是失败；如果 B 能只读 project key + snapshot + events 就理解 A 的新需求，并写回 patch/artifact 事件，那才证明 DeepWork 的核心成立。
+
+### 验证状态
+
+本轮新增的是文档，不涉及运行时代码。已读取并静态核对当前协议代码，确认文档引用的事件名在 `src/types/deepwork-protocol.ts` 中存在，包括 `intent.created`、`patch.proposed`、`patch.applied`、`artifact.updated`、`synthesis.started`、`synthesis.completed`；也确认 `GET /api/workspace?roomId=...` 路径已存在，能作为双机器读取入口。
+
+未运行 `npm run build`，因为本轮没有修改 TypeScript/React 代码；如果后续新增 patch writer endpoint，则必须补构建验证。
+
+### 当前仍不确定
+
+双机器测试的最大不确定仍是 canonical state：如果两台机器只读各自本地 `.deepwork`，一定可能分叉。第一次测试应优先使用同一个 Supabase + HTTP reader API，而不是把本地文件同步当作真相源。
+
+另一个缺口是 first-class patch writer：代码类型已经支持 `patch.proposed`，但目前还没有独立 HTTP endpoint 让外部 agent 安全写入 patch event。下一步可以实现 `POST /api/workspace/events`，先只允许 `intent.created`、`patch.proposed`、`artifact.updated` 这类非破坏性语义记录。
+
+### 下一步建议
+
+1. 实现 `POST /api/workspace/events`，作为 agent 写入 semantic event 的最小 writer path。
+2. 让 `GET /api/workspace` 返回或附带 recent semantic events，而不只是 snapshot + projectKey，这样 B 端 agent 不必直接读本地 `events.ndjson`。
+3. 做一次真实双机器/双客户端测试，并按 `docs/protocol-dual-machine-test.md` 的 result template 写回 `work-log.md`。
+
+_下次更新：下轮自动分析时_
+
+---
+
+## 第十三轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+第十二轮留下了 `docs/protocol-dual-machine-test.md`（未提交）和 Cycle 12 work-log（已写入文件但未 commit）。代码层面无新改动。
+
+本轮识别的最高优先级空缺：Machine B 目前无法通过 HTTP 向共享事件流写入语义记录。文档里写了 `patch.proposed` / `artifact.updated` 的事件格式，但没有任何 HTTP 端点让外部 agent 发起这类写入。需要一个可从浏览器、curl 或任意 agent 调用的、不依赖 Supabase 写权限的 writer path。
+
+### 本轮完成的改动
+
+#### ✅ `POST /api/workspace/events`
+
+**文件**：`src/app/api/workspace/events/route.ts`（新建）
+
+外部 agent 可以：
+```
+POST /api/workspace/events
+{ "roomId": "ABC123", "event": { "type": "patch.proposed", "summary": "...", "linkedIntents": [...], "affectedFiles": [...], "status": "proposed" } }
+```
+
+实现逻辑：
+- 验证 `event.type` 在允许列表内（`intent.created`、`patch.proposed`、`patch.applied`、`artifact.updated`、`decision.accepted`、`summary.updated`、`conflict.detected`）
+- 不允许 `actor.joined`、`synthesis.*`（这些通过各自专属路由写入）
+- 填充 `projectId: 'deepwork'`、`roomId`、`recordedAt` 后直接 `appendFile` 到 `events.ndjson`
+- 无 Supabase 调用，适合高频 agent 事件记录
+
+#### ✅ `GET /api/workspace` 增加 `recentEvents`
+
+**文件**：`src/app/api/workspace/route.ts`（修改）
+
+返回值新增字段 `recentEvents: DeepWorkSemanticEvent[]`（最近 20 条）。
+
+之前 Machine B 需要直接读本地 `events.ndjson`，现在一次 HTTP 调用就能拿到 snapshot + projectKey + 最近事件上下文，不再需要文件系统访问权限。
+
+### 构建验证
+
+✅ `npm run build` 通过，路由从 11 条增至 12 条，TypeScript 无错误。
+
+### Commit & Push
+
+- `030894a`：`feat: POST /api/workspace/events + recentEvents in GET response`
+- Push 成功：`ba13e1a..030894a main -> main`
+
+### 当前协议层完整性
+
+| 能力 | 状态 | HTTP 路径 |
+|------|------|-----------|
+| 读取房间快照 | ✅ | `GET /api/workspace?roomId=` |
+| 读取最近事件 | ✅ | 同上，`recentEvents` 字段 |
+| 写入意图（人类） | ✅ | `POST /api/intents` |
+| 写入意图（agent） | ✅ | `POST /api/workspace/events { type: intent.created }` |
+| 写入 patch 记录（agent） | ✅ | `POST /api/workspace/events { type: patch.proposed }` |
+| 写入 artifact 记录（agent） | ✅ | `POST /api/workspace/events { type: artifact.updated }` |
+| 合成触发 | ✅ | `POST /api/synthesize` |
+| Demo 填充 | ✅ | `POST /api/demo/populate` |
+
+### 下一步建议
+
+1. **演示彩排**（P0，4/29 前）：`.env.local` 配置 + 端到端跑一遍
+2. **双机器首次测试**：按 `docs/protocol-dual-machine-test.md` 步骤，用 curl 或脚本模拟 Machine B 调用 `GET /api/workspace` + `POST /api/workspace/events`，验证 `events.ndjson` 写入正确
+3. **`RoomSnapshot` 对齐 `DeepWorkSnapshot`**：`GET /api/workspace` snapshot 字段目前是内部格式，不完全符合协议定义的 `DeepWorkSnapshot` 结构
+
+_下次更新：下轮自动分析时_
