@@ -383,4 +383,147 @@ git status 确认：上轮所有改动未推送。本轮第一件事：提交并
 
 4. **可选优化**（P2，时间够再做）
    - 移动端适配（部分参与者可能用手机）
-   - 演示模式：一键填充所有6角色的示例意图（跳过现场输入环节）
+   - ~~演示模式：一键填充所有6角色的示例意图~~（已完成 ↓）
+
+---
+
+## 第五轮分析 — 2026/04/25
+
+### 团队代码扫描
+
+git status 干净，上轮所有改动已推送。无新的团队提交。
+
+### 本轮完成的改动
+
+#### ✅ Demo 模式：一键填充所有角色意图
+**文件**：`src/app/api/demo/populate/route.ts`（新建），`src/app/room/[id]/page.tsx`
+
+**问题**：演示流程要求 6 个真人同时在线各提交意图。现实中演示时可能只有 1-2 人。没有快速填充机制意味着演示依赖人手，风险极高。
+
+**解决方案**：
+
+`POST /api/demo/populate` — 幂等接口：
+1. 查询房间内已有角色（已有的角色不重复创建）
+2. 对每个缺席角色：创建合成参与者（名称 = 角色标签，如「设计师」）
+3. 为每个合成参与者提交 2 条预设 demo 意图（来自 `roles.ts` 的 `demoIntents`）
+4. 触发 room_sections upsert，确保板块状态同步
+5. 返回 `{ added: N, intents: M }`
+
+**UI 变更**：
+- **右侧面板空状态**：「⚡ 一键填充演示数据」按钮（房间没有任何意图时显示）
+  - 点击 → 调用 /api/demo/populate → Realtime 广播 12 条意图 → 协作流即时填满
+- **中间面板 header**：「补全 N 个角色」按钮（已有意图但 participants < 6 时显示）
+  - 演示中途有人失联时的救场按钮
+
+**Demo 效果**：
+- 单人演示：进入房间 → 点「⚡ 一键填充演示数据」→ 3 秒后 12 条意图出现 → 点「合成 →」
+- 全程不需要其他参与者
+- Realtime 仍正常广播（观众可以看到意图一条一条出现）
+
+**构建验证：** ✅ `npm run build` 通过，路由数 9 → 10（新增 /api/demo/populate），room 页面 6.89 kB → 7.14 kB
+
+**Git push：** ✅ `0eb5f18..55b35f8  main -> main`
+
+---
+
+### 当前状态评估
+
+**演示就绪度：~98%**
+
+新增就绪项：
+- ✅ Demo 模式：一键填充（演示不再依赖 6 人到场）
+
+剩余缺口（仅需非代码操作）：
+- ⚠️ `.env.local` 需手动配置（SUPABASE_URL/KEY + ANTHROPIC_API_KEY）
+- ⚠️ 未做过真实端到端测试（需要真实 API Keys）
+- ⚠️ 未部署到 Vercel（演示走 localhost 也可，但线上更稳定）
+
+---
+
+### 4/30 Demo Day 检查清单
+
+代码层面（全部完成）：
+- ✅ 6角色加入 + 实时人数
+- ✅ 意图提交 + Realtime 广播
+- ✅ 板块管理（8个预设 + 自定义）
+- ✅ Demo 模式（一键填充 12 条意图）
+- ✅ 合成全屏 Overlay（双环动画 + 角色 pills + 板块分解）
+- ✅ Claude 合成（90s timeout + Vercel 120s maxDuration）
+- ✅ 归因 Overlay（hover → 角色颜色边框 + 底部 tooltip）
+- ✅ 全员自动跳转结果页
+- ✅ 多轮迭代历史（R1/R2/R3 切换）
+- ✅ 继续迭代闭环
+- ✅ 下载 HTML
+- ✅ 入口页产品说明
+- ✅ Demo 演示脚本（docs/demo-script.md）
+- ✅ 所有代码推送至 GitHub
+
+需手动完成（非代码）：
+- [ ] 配置 `.env.local` 并跑一次端到端
+- [ ] Vercel 部署（可选，localhost 也行）
+- [ ] 4/29 彩排一次
+
+---
+
+## 第六轮分析 — 2026/04/25
+
+### 本轮背景
+
+用户确认 DeepWork 的长期目标：创造一种全新的工作方式。Claude、OpenClaw、Hermes、Codex、VSCode 等 agent/client 应能围绕同一个项目状态协作。用户希望系统每 30 分钟自动分析工作文件夹，在目标明确时自运行完善项目，并把经过验证、认为可行且正确的思考和工作内容记录到项目文件夹中，供用户消化后反馈。
+
+### 本轮核心判断
+
+DeepWork 的关键闭环不是“agent 回答用户”，而是：
+
+```text
+User natural language
+→ Agent semantic interpretation
+→ Protocol event
+→ Shared state update
+→ Realtime notification / snapshot refresh
+→ Other agent reads semantic delta
+→ Agent proposes patch or artifact
+→ Patch/artifact event recorded
+→ Synthesis updates visible output
+→ All participants share the same new project state
+```
+
+也就是说：聊天是交互层，事件是协作层，snapshot 是快速读取层，artifact 是可见输出层。
+
+### 已完成的设置
+
+已创建一个自动计划任务：`deepwork-half-hour-analysis`。
+
+运行频率：每 30 分钟。
+
+任务目标：定期分析 `/Users/zezedabaobei/Desktop/cosmocloud/Deeplumen/cosmowork/deepwork`，理解最近变化，围绕 shared project state、intent protocol、agent-readable collaboration layer、governable synthesis、realtime collaboration、attribution、cross-machine readability 等方向进行小步验证和改进，并把思考与工作记录保存到项目文件夹。
+
+### 本轮新增文档
+
+新增：`docs/plans/2026-04-25-autonomous-loop-and-agent-semantics.md`
+
+该文档记录了当前可行性方案：
+
+- Project Key 只负责发现项目，不承担实时真相源
+- Snapshot 负责毫秒级读取当前项目状态
+- Event Stream 负责多人/多 agent 的增量语义历史
+- Realtime 通道负责让其他用户和 agent 看到新增内容
+- Agent 输出必须变成结构化语义事件，例如 `intent.created`、`patch.proposed`、`artifact.updated`
+- Claude + OpenClaw 双机器测试应验证两个 agent 能否通过同一 project key 汇合到同一个 project state
+
+### 当前认为可行且正确的方案
+
+1. 第一次双机器测试不应依赖本地 `.deepwork` 文件实时同步。更稳妥的方式是本地保留 `.deepwork/project.json` 作为钥匙，但 canonical state 指向同一个远端 Supabase 或 HTTP endpoint。
+2. 用户自然语言必须被 agent 转换为结构化事件，不能只停留在聊天回复里。
+3. 其他 agent 快速理解新需求，不应依赖完整聊天记录，而应读取 snapshot 中的 section summaries、recent intents、decisions、patch records 和 latest artifacts。
+4. agent 修改文件或产物时，必须同时记录 semantic patch record，说明为什么改、关联哪个 intent、影响哪些文件和板块。
+5. 当前 demo 的 Supabase Realtime 路径可以扩展成通用项目事件订阅模型。
+
+### 下一步建议
+
+1. 把 `docs/plans/2026-04-25-autonomous-loop-and-agent-semantics.md` 中的事件类型落成 TypeScript schema。
+2. 定义 `.deepwork/project.json` v0.1 的具体 schema。
+3. 增加一个 reader utility：读取 project key、snapshot、recent events，输出 agent-readable project context。
+4. 增加一个 writer path：至少支持 `intent.created`、`patch.proposed`、`artifact.updated`。
+5. 为 Claude + OpenClaw 写一份双机器测试脚本。
+

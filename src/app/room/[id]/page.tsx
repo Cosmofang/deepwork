@@ -24,6 +24,8 @@ function mergeSections(existing: string[], additions: string[]) {
   return next;
 }
 
+type MobileTab = 'intent' | 'flow' | 'sections';
+
 export default function RoomPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -43,6 +45,7 @@ export default function RoomPage() {
   const [synthesizing, setSynthesizing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [populating, setPopulating] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>('flow');
   const intentsEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
@@ -419,34 +422,34 @@ export default function RoomPage() {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-white/10 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <span className="font-bold">DeepWork</span>
-          <span className="text-gray-600">·</span>
+      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-white/10 flex-shrink-0">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <span className="font-bold text-sm md:text-base flex-shrink-0">DeepWork</span>
+          <span className="text-gray-600 hidden md:inline">·</span>
           <button
             onClick={copyRoomCode}
-            className="font-mono text-gray-400 text-sm tracking-widest hover:text-white transition-colors"
+            className="font-mono text-gray-400 text-xs md:text-sm tracking-widest hover:text-white transition-colors truncate"
             title="点击复制房间码"
           >
             {copied ? '已复制 ✓' : id}
           </button>
           {participants.length > 0 && (
-            <span className="text-xs text-gray-600">{participants.length} 人在线</span>
+            <span className="text-xs text-gray-600 flex-shrink-0">{participants.length}人</span>
           )}
         </div>
         {participant && role && (
-          <div className="flex items-center gap-2 bg-white/5 rounded-full px-3 py-1.5">
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: role.color }} />
-            <span className="text-sm text-gray-300">{participant.name}</span>
+          <div className="flex items-center gap-1.5 md:gap-2 bg-white/5 rounded-full px-2 md:px-3 py-1.5 flex-shrink-0">
+            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: role.color }} />
+            <span className="text-sm text-gray-300 hidden md:inline">{participant.name}</span>
             <span className="text-xs" style={{ color: role.color }}>{role.label}</span>
           </div>
         )}
       </div>
 
-      {/* 3-panel layout */}
+      {/* 3-panel layout (desktop) / single panel (mobile) */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: My intent */}
-        <div className="w-72 border-r border-white/10 flex flex-col p-4 flex-shrink-0">
+        <div className={`${mobileTab === 'intent' ? 'flex' : 'hidden'} md:flex w-full md:w-72 border-r border-white/10 flex-col p-4 flex-shrink-0`}>
           <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">我的意图</div>
           {role && (
             <div className="mb-3 flex items-center gap-2 text-sm" style={{ color: role.color }}>
@@ -530,7 +533,7 @@ export default function RoomPage() {
         </div>
 
         {/* Center: All intents */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className={`${mobileTab === 'flow' ? 'flex' : 'hidden'} md:flex flex-1 flex-col min-w-0`}>
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
             <div>
               <span className="text-xs text-gray-500 uppercase tracking-wider">
@@ -667,8 +670,8 @@ export default function RoomPage() {
           </div>
         </div>
 
-        {/* Right: Preview */}
-        <div className="w-80 border-l border-white/10 flex flex-col flex-shrink-0">
+        {/* Right: Section status */}
+        <div className={`${mobileTab === 'sections' ? 'flex' : 'hidden'} md:flex w-full md:w-80 border-l border-white/10 flex-col flex-shrink-0`}>
           <div className="px-4 py-3 border-b border-white/10 flex-shrink-0">
             <span className="text-xs text-gray-500 uppercase tracking-wider">板块状态</span>
           </div>
@@ -747,6 +750,53 @@ export default function RoomPage() {
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Mobile bottom tab bar — hidden on desktop */}
+      <div className="md:hidden flex-shrink-0 border-t border-white/10 bg-[#0a0a0a]">
+        {/* Synthesis button row (only when there are intents) */}
+        {intents.length > 0 && (
+          <div className="px-4 pt-3 pb-1">
+            <button
+              onClick={triggerSynthesis}
+              disabled={intents.length === 0 || synthesizing || roomStatus === 'synthesizing'}
+              className="w-full py-2.5 rounded-xl text-sm font-medium bg-white text-black disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
+            >
+              {synthesizing ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+                  合成中...
+                </span>
+              ) : `合成 → (${intents.length} 条意图)`}
+            </button>
+          </div>
+        )}
+        {/* Tab bar */}
+        <div className="flex">
+          {([
+            { tab: 'intent' as MobileTab, label: '我的意图', icon: '✍️' },
+            { tab: 'flow' as MobileTab, label: '协作流', icon: '💬', badge: totalNewCount },
+            { tab: 'sections' as MobileTab, label: '板块状态', icon: '📋' },
+          ] as { tab: MobileTab; label: string; icon: string; badge?: number }[]).map(({ tab, label, icon, badge }) => (
+            <button
+              key={tab}
+              onClick={() => setMobileTab(tab)}
+              className="flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors relative"
+              style={{ color: mobileTab === tab ? '#fff' : '#6b7280' }}
+            >
+              <span className="text-lg leading-none">{icon}</span>
+              <span className="text-[10px]">{label}</span>
+              {badge && badge > 0 && (
+                <span className="absolute top-2 right-1/4 translate-x-1/2 w-4 h-4 rounded-full bg-emerald-500 text-[9px] flex items-center justify-center text-white font-bold">
+                  {badge > 9 ? '9+' : badge}
+                </span>
+              )}
+              {mobileTab === tab && (
+                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-white" />
+              )}
+            </button>
+          ))}
         </div>
       </div>
     </div>
