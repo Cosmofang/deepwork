@@ -740,3 +740,81 @@ cache-first（读 `.deepwork/rooms/{id}/snapshot.json`），cache miss → live 
 4. **网络恢复后 push commit `320aff0`**：`git push origin main`
 
 _下次更新：下轮自动分析时_
+
+---
+
+## 第十轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+本轮重点检查了第九轮之后的协议层代码：`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/route.ts`、`src/app/api/synthesize/route.ts`、`src/app/api/intents/route.ts`，并复核了 join、section、demo populate 等写入路径。
+
+当前代码已经具备 DeepWork 协议 v0.1 的核心骨架：project key、room snapshot、events.ndjson、latest.html artifact、workspace reader API 都已存在。第九轮提到的 commit `320aff0` 已在本地，远端 push 状态本轮未依赖网络验证。
+
+### 本轮发现的问题
+
+Demo 模式 `/api/demo/populate` 会直接创建合成参与者并批量插入 demo intents，但没有调用 `syncRoomStateToWorkspace()`。这会造成一个协议层断点：UI 里能看到 12 条 demo 意图，但 `.deepwork/rooms/<roomId>/events.ndjson` 不会记录这些 `actor.joined` / `intent.created` 语义事件，snapshot 也可能直到下一次普通意图或合成才刷新。
+
+这对长期目标有影响：如果 OpenClaw、Claude 或其他 agent 通过 project key + event stream 理解项目，它们会漏掉 demo populate 产生的关键语义增量。Demo 模式本来是最常用的演示路径，因此它必须和真实多人输入一样写入共享项目状态。
+
+### 本轮完成的改动
+
+#### ✅ Demo populate 接入 DeepWork workspace sync
+
+**文件**：`src/app/api/demo/populate/route.ts`
+
+改动内容：
+
+- 引入 `syncRoomStateToWorkspace`
+- 为每个合成参与者创建 `room_joined` workspace event
+- 为每条成功插入的 demo intent 创建 `intent_created` workspace event
+- 在批量数据库写入完成后，顺序调用 `syncRoomStateToWorkspace(roomId, event)`，让 `.deepwork/rooms/<roomId>/events.ndjson` 记录完整语义历史，并同步刷新 snapshot、summary、project key
+
+这保持了现有 UI 行为不变，同时让 demo populate 不再绕过协议层。
+
+### 为什么这是安全且方向正确的小改动
+
+它没有改数据库 schema，也没有改变前端交互；只是在已有成功写入之后补充 workspace 语义记录。失败风险主要是 workspace sync 抛错会导致 API 返回失败，但这与 join/intents/sections 当前路径一致，符合“共享项目状态是源事实的一部分”的产品方向。
+
+### 验证状态
+
+已静态复核相关文件，确认 `RoomStateEvent` 已支持 `room_joined` 和 `intent_created`，`toSemanticEventType()` 会分别写成 `actor.joined` 与 `intent.created`。同时将 `RoomStateEvent` 从 `src/lib/room-state.ts` 显式导出，避免 demo populate 只能通过函数参数类型间接推导事件类型。尝试启动隔离 worktree 子代理做二次构建验证失败，原因仍是当前 Cowork 挂载路径未被 agent 工具识别为可创建 worktree 的 git repo；因此本轮验证限于主会话静态复核。仍需执行 `npm run build` 或 `npx tsc --noEmit` 做 TypeScript 级验证。
+
+### 下一步建议
+
+1. 运行构建验证本轮 TypeScript 改动。
+2. 如果构建通过，提交并 push 当前改动；同时重试 push 第九轮的 `320aff0`。
+3. 下一轮可写 `docs/protocol-dual-machine-test.md`，明确 Claude 机器与 OpenClaw 机器如何通过 project key + workspace reader API 判断是否读到同一项目状态。
+
+_下次更新：下轮自动分析时_
+
+---
+
+## 第十一轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+本轮接手第十轮未完成的验证和交付步骤：demo populate 代码改动已在工作区，工作日志已记录问题分析，但构建未跑、commit/push 未完成。
+
+### 本轮完成的工作
+
+1. 运行 `npm run build` → ✅ 11 条路由干净通过，TypeScript 无错误
+2. Commit `9aa87d1`：`feat: demo populate emits workspace events for each synthetic actor + intent`
+3. Push 成功：`5a3949a..9aa87d1 main -> main`
+
+### 当前状态总结
+
+| 能力 | 状态 | 备注 |
+|------|------|------|
+| Demo Populate 写入 workspace | ✅ | `room_joined` + `intent_created` 事件全部记录 |
+| 协议层完整性 | ✅ | 所有写入路径（join/intent/section/synthesize/demo）均接入 workspace sync |
+| 构建状态 | ✅ | 11 路由，clean |
+| 远端同步 | ✅ | `9aa87d1` 已推到 origin/main |
+
+### 下一步建议
+
+1. **演示彩排**（P0，4/29 前）：配置 `.env.local`，端到端跑一遍，验证 `.deepwork/` 目录写入
+2. **`docs/protocol-dual-machine-test.md`**：定义 Claude 机器和 OpenClaw 机器各执行什么、如何通过 project key 验证 convergence
+3. **`RoomSnapshot` 对齐 `DeepWorkSnapshot`**：`GET /api/workspace` 目前返回内部 `RoomSnapshot` 结构，长期应返回协议定义的 `DeepWorkSnapshot`
+
+_下次更新：下轮自动分析时_
