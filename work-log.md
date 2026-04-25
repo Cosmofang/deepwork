@@ -4,6 +4,46 @@
 
 ---
 
+## 第二十四轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+第二十三轮已经把归因常亮接到结果页，demo 端的“贡献可见”更强。本轮转回协议治理层，检查 `src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/*`、`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md` 后发现一个语义不一致：`recommendedNextActions` 会用 `decision.accepted.decisionId` 判断冲突是否已解决，但 `snapshot.unresolvedConflicts` 仍然直接返回所有 `conflict.detected` 事件。这会让 Machine B 看到“P0 行动已消失/减少”，但同一个 snapshot 里仍显示已解决冲突，削弱共享状态作为治理事实源的可信度。
+
+### 本轮完成的改动
+
+#### ✅ 已解决冲突不再出现在 `snapshot.unresolvedConflicts`
+
+**文件**：`src/lib/room-state.ts`
+
+- 复用同一个 `unresolvedConflicts` 计算结果来生成 `recommendedNextActions` 和 `snapshot.unresolvedConflicts`
+- `decision.accepted.decisionId === conflict.detected.conflictId` 的冲突现在会从 unresolved 列表中移除
+- `resolvedIds` 过滤空字符串，避免没有 `decisionId` 的普通决策意外污染匹配集合
+
+#### ✅ 补齐冲突关闭协议说明
+
+**文件**：`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md`
+
+- 明确冲突关闭规则：`conflict.detected` 应尽量带稳定 `conflictId`；关闭时写入 `decision.accepted`，并让 `decisionId` 精确等于该 `conflictId`
+- 增加 resolution event 示例
+- 双机器测试 Step 6 增加闭环断言：关闭后，两个机器都应看到该冲突从 `snapshot.unresolvedConflicts` 消失，并且不再被 `resolve-open-conflicts` 计数
+
+### 为什么这是方向正确的改动
+
+DeepWork 的关键不是“发现冲突”本身，而是把冲突变成可治理、可关闭、可被另一台机器验证的共享状态。如果 unresolved 列表和 recommended action 的判断不一致，agent 就必须猜哪个字段可信。本轮改动让“冲突仍未解决吗？”这个问题在 snapshot 中只有一个一致答案，更接近 agent-readable collaboration layer，而不是 UI 提示或私有推理。
+
+### 验证状态
+
+已静态复核相关代码路径和文档。由于当前自动运行环境的 shell 可用性未完全确认，本轮尚未完成 `npm run build`，建议下一轮或人工执行完整构建。该改动只影响 TypeScript 内部已有变量复用和 Markdown 文档，风险较低，但仍应以 build 结果为准。
+
+### 下一步建议
+
+1. **P0 — 运行 `npm run build`**：验证本轮 `room-state.ts` 类型改动。
+2. **P1 — 最小协议闭环测试**：写入 `conflict.detected(conflictId=A)` → GET workspace 看到 P0/unresolved → 写入 `decision.accepted(decisionId=A)` → GET workspace 确认 unresolved 消失。
+3. **P1 — 端到端 demo 演练**：配置 Supabase/Anthropic keys 后验证“意图→合成→冲突→决策→下一步行动消失”的完整治理叙事。
+
+---
+
 ## 第二十三轮分析 — 2026/04/25
 
 ### 本轮扫描结论

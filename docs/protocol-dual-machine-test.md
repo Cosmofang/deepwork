@@ -96,11 +96,23 @@ Trigger synthesis if API keys are configured. A successful synthesis should writ
 
 Success condition: both machines can discover the latest artifact from shared project state and agree on its path, round, and attribution map.
 
-## Step 6: Convergence Check
+## Step 6: Governance Action Visibility
 
-Both machines should independently refresh the workspace reader endpoint and compare: room ID, snapshot update time, total recent intents, total sections, latest artifact if present, latest synthesis round if discoverable, and the most recent semantic event type. If local `.deepwork` files are used, compare the same fields from `project.json`, `snapshot.json`, and `events.ndjson`.
+After synthesis or after writing a `conflict.detected` / `patch.proposed` event, both machines should inspect `snapshot.recommendedNextActions` from `GET /api/workspace?roomId=<ROOM_ID>`. The field is not UI copy; it is an agent-readable planning surface. Each action should include a stable `id`, `priority`, `summary`, `reason`, `suggestedAction`, and relevant protocol hints such as `eventTypes`, `affectedSections`, `affectedFiles`, or `linkedEventIds`.
 
-Success condition: both machines report the same project state summary and can describe the latest requirement, patch, and artifact in compatible language.
+For a conflict test, Machine A or the synthesis flow should record a `conflict.detected` event with a stable `conflictId`. Both machines should then verify that `recommendedNextActions` contains a `p0` action with `id: "resolve-open-conflicts"`, `suggestedAction: "write_event"`, and `eventTypes: ["decision.accepted"]`. Machine B should be able to infer the next governance move from this structured action without reading Machine A's chat.
+
+To close the loop, Machine B should record a `decision.accepted` event whose `decisionId` exactly matches the conflict's `conflictId`, and whose `value` states the accepted resolution. Both machines should refresh `GET /api/workspace?roomId=<ROOM_ID>` and verify that the resolved conflict is absent from `snapshot.unresolvedConflicts` and is no longer counted by the `resolve-open-conflicts` action. If several conflicts exist, the action may remain but its count and `linkedEventIds` should only refer to still-unresolved conflicts.
+
+For a patch test, Machine B should record a `patch.proposed` event. Both machines should then verify that `recommendedNextActions` contains a `p1` action with `id: "review-proposed-patches"`, `suggestedAction: "review_patch"`, and links back to the proposed patch through `linkedEventIds` or affected files/sections.
+
+Success condition: both machines sort the same action list by priority and independently choose the same next move. A passing result proves that DeepWork can expose governance work as shared protocol state, not as hidden model reasoning or a private chat instruction.
+
+## Step 7: Convergence Check
+
+Both machines should independently refresh the workspace reader endpoint and compare: room ID, snapshot update time, total recent intents, total sections, latest artifact if present, latest synthesis round if discoverable, the most recent semantic event type, and the highest-priority `recommendedNextActions` item. If local `.deepwork` files are used, compare the same fields from `project.json`, `snapshot.json`, and `events.ndjson`.
+
+Success condition: both machines report the same project state summary and can describe the latest requirement, patch, artifact, and next governance action in compatible language.
 
 ## Failure Modes To Watch
 
@@ -112,6 +124,8 @@ A third failure is raw snapshots without semantics. If Machine B sees rows but c
 
 A fourth failure is patches without attribution. If a file changes without `patch.proposed`, `patch.applied`, or `artifact.updated`, other agents can see that something changed but not why it changed.
 
+A fifth failure is action asymmetry. If one machine sees `recommendedNextActions` but another machine cannot reproduce the same priority order or cannot map the action to a valid next event type, then the project state has not yet become a dependable planning surface for agents.
+
 ## Test Result Template
 
-Record each run in `work-log.md` with: room ID, commit SHA, machines or agent clients used, whether both machines read the same project key, whether Machine B understood Machine A's new intent without chat transcript, whether a semantic patch or artifact event was recorded, whether snapshots converged, what failed, and what protocol field should be added next.
+Record each run in `work-log.md` with: room ID, commit SHA, machines or agent clients used, whether both machines read the same project key, whether Machine B understood Machine A's new intent without chat transcript, whether a semantic patch or artifact event was recorded, whether snapshots converged, whether both machines saw the same highest-priority recommended action, what failed, and what protocol field should be added next.

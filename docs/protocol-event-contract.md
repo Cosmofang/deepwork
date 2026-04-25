@@ -174,7 +174,21 @@ The endpoint normalizes `projectId`, `roomId`, and `recordedAt`, appends one JSO
 
 ## Snapshot Implications
 
-`GET /api/workspace?roomId=<ROOM_ID>` returns a protocol-level snapshot built from room state plus recent semantic events. Recent patch events appear in `snapshot.proposedPatches`. Accepted decisions appear in `snapshot.decisions`. Artifact events appear in `snapshot.latestArtifacts`. Conflict events appear in `snapshot.unresolvedConflicts`.
+`GET /api/workspace?roomId=<ROOM_ID>` returns a protocol-level snapshot built from room state plus recent semantic events. Recent patch events appear in `snapshot.proposedPatches`. Accepted decisions appear in `snapshot.decisions`. Artifact events appear in `snapshot.latestArtifacts`. Conflict events appear in `snapshot.unresolvedConflicts` only while they are still unresolved.
+
+Conflict resolution is identity-based. A `conflict.detected` event should include a stable `conflictId` whenever possible. To mark that conflict resolved, write a `decision.accepted` event whose `decisionId` equals the conflict's `conflictId`, and whose `value` records the accepted human or team decision. After that event appears in the recent event stream, the conflict should disappear from `snapshot.unresolvedConflicts` and the `resolve-open-conflicts` recommended action should no longer count it.
+
+Example resolution event:
+
+```json
+{
+  "type": "decision.accepted",
+  "summary": "Resolved homepage density conflict.",
+  "decisionId": "synth-r2-c0",
+  "title": "Homepage density",
+  "value": "Use a minimal hero section with one expandable technical details block below the fold."
+}
+```
 
 `snapshot.recommendedNextActions` is intentionally structured rather than plain text. Each action includes `id`, `priority`, `summary`, `reason`, optional `suggestedAction`, and optional protocol hints such as `eventTypes`, `affectedSections`, `affectedFiles`, and `linkedEventIds`. This lets another agent distinguish urgent governance blockers from lower-priority demo completeness suggestions, and lets it choose the correct next event to write without parsing prose.
 

@@ -491,7 +491,10 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
     (event): event is DeepWorkConflictDetectedEvent => event.type === 'conflict.detected'
   );
   const resolvedIds = new Set(
-    recentEvents.filter(e => e.type === 'decision.accepted').map(e => e.decisionId || '')
+    recentEvents
+      .filter(e => e.type === 'decision.accepted')
+      .map(e => e.decisionId || '')
+      .filter(Boolean)
   );
   const unresolvedConflicts = conflictEvents.filter(event => !resolvedIds.has(event.conflictId || event.recordedAt));
   if (unresolvedConflicts.length > 0) {
@@ -575,14 +578,12 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
       })),
     proposedPatches,
     latestArtifacts,
-    unresolvedConflicts: recentEvents
-      .filter(event => event.type === 'conflict.detected')
-      .map(event => ({
-        id: event.conflictId || event.id,
-        summary: event.summary,
-        sections: event.sections,
-        actorIds: event.actorIds,
-      })),
+    unresolvedConflicts: unresolvedConflicts.map(event => ({
+      id: event.conflictId || event.id,
+      summary: event.summary,
+      sections: event.sections,
+      actorIds: event.actorIds,
+    })),
     recommendedNextActions,
   };
 }
