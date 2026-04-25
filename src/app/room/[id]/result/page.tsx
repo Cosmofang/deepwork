@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { ROLES } from '@/lib/roles';
 import { RoleId, SynthesisResult } from '@/types';
+import type { DeepWorkRecommendedAction } from '@/types/deepwork-protocol';
 
 const ROLE_DATA = Object.fromEntries(
   Object.entries(ROLES).map(([k, v]) => [k, { label: v.label, color: v.color }])
@@ -63,6 +64,7 @@ export default function ResultPage() {
   const [activeRound, setActiveRound] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
+  const [recommendedActions, setRecommendedActions] = useState<DeepWorkRecommendedAction[]>([]);
   const supabase = createClient();
 
   const activeResult = allResults.find(r => r.round === activeRound) ?? allResults[allResults.length - 1] ?? null;
@@ -118,6 +120,19 @@ export default function ResultPage() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [id]);
+
+  // Fetch protocol-level recommended actions from the workspace snapshot.
+  // Silently no-ops if .deepwork/ doesn't exist (Vercel / first run).
+  useEffect(() => {
+    if (!id) return;
+    fetch(`/api/workspace?roomId=${encodeURIComponent(id)}`)
+      .then(r => r.ok ? (r.json() as Promise<{ snapshot?: { recommendedNextActions?: DeepWorkRecommendedAction[] } }>) : null)
+      .then(data => {
+        const actions = data?.snapshot?.recommendedNextActions ?? [];
+        setRecommendedActions(actions.filter(a => a.priority !== 'p2'));
+      })
+      .catch(() => null);
+  }, [id, allResults.length]);
 
   if (loading) {
     return (
@@ -217,6 +232,44 @@ export default function ResultPage() {
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
                     )}
                   </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recommended next actions — sourced from protocol snapshot */}
+          {recommendedActions.length > 0 && (
+            <div className="p-4 border-b border-white/10">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">下一步行动</p>
+              <div className="space-y-2">
+                {recommendedActions.map(action => (
+                  <div
+                    key={action.id}
+                    className="rounded-xl border p-2.5"
+                    style={
+                      action.priority === 'p0'
+                        ? { borderColor: 'rgba(239,68,68,0.25)', backgroundColor: 'rgba(239,68,68,0.05)' }
+                        : { borderColor: 'rgba(245,158,11,0.25)', backgroundColor: 'rgba(245,158,11,0.05)' }
+                    }
+                  >
+                    <span
+                      className="inline-block text-[9px] font-mono font-bold px-1 py-0.5 rounded mb-1.5"
+                      style={{
+                        color: action.priority === 'p0' ? '#f87171' : '#fbbf24',
+                        backgroundColor: action.priority === 'p0' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
+                      }}
+                    >
+                      {action.priority.toUpperCase()}
+                    </span>
+                    <p className="text-[11px] text-gray-400 leading-snug">{action.summary}</p>
+                    {action.affectedSections && action.affectedSections.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {action.affectedSections.map(s => (
+                          <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-600 border border-white/5">{s}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

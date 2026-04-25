@@ -4,6 +4,49 @@
 
 ---
 
+## 第二十二轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+团队无新提交，工作树干净。本轮扫描 UI 层，发现最高优先级缺口：合成结果页（result page）从未消费过 `recommendedNextActions` 协议字段。我们花了整整两轮（20–21）把这个字段结构化、打通合成冲突闭环，但在 demo 中人类观察者看到的只有 HTML 和归因摘要，完全看不到"下一步该做什么"。
+
+### 本轮完成的改动
+
+#### ✅ 结果页「下一步行动」侧边栏
+
+**文件**：`src/app/room/[id]/result/page.tsx`
+
+- 引入 `DeepWorkRecommendedAction` 类型（type-only import）
+- 新增 `recommendedActions` state（`DeepWorkRecommendedAction[]`）
+- 新增 `useEffect`：页面挂载（以及每次 `allResults.length` 变化，即重新合成）后，向 `GET /api/workspace?roomId={id}` 发起请求，取 `snapshot.recommendedNextActions`，过滤掉 `p2`（低优先级的"邀请缺席角色"不在结果页显示）
+- 在侧边栏「归因摘要」区块上方插入「下一步行动」卡片组：
+  - p0（红色）— 未解决冲突、需要重新合成等治理阻塞项
+  - p1（琥珀色）— 待审查的 proposed patch
+  - 每张卡片展示 priority badge + summary + affectedSections 标签
+  - 若无 p0/p1 行动（干净合成），区块不渲染，不影响正常状态
+
+#### ✅ 构建验证
+
+`npm run build` 通过，result page bundle 从 4.69 kB → 5.09 kB。
+
+### 为什么这是方向正确的改动
+
+协议 → 行动 → UI 的闭环现在在 demo 中可见：
+1. 合成 → Claude 检测到冲突 → `conflict.detected` 写入 `events.ndjson`（Cycle 21）
+2. 结果页加载 → 调用 `GET /api/workspace` → 取到 `resolve-open-conflicts` (p0)
+3. 侧边栏显示红色 P0 卡片："Resolve N unresolved conflicts — write a decision.accepted event for each resolved conflict"，并标注受影响的板块
+4. 演示者/Machine B 明确知道下一步：写 `decision.accepted`，或点击「继续迭代」补充意图
+
+这让 DeepWork 的核心命题（人机协作的治理层）在 demo 中变得肉眼可见，而不是只存在于 curl 命令和协议文档里。
+
+### 下一步建议
+
+1. **P0 — demo 端到端演练**（4/29 前）：配置 `.env.local`，验证"意图→合成→冲突显示→继续迭代"的完整流程
+2. **P1 — 双机器 curl 测试**：POST `conflict.detected` → GET `/api/workspace` → 验证 UI 侧边栏出现 P0 卡片
+3. **P2 — 主页优化**：入口页面（`/`）可以展示更清晰的 demo 引导
+
+---
+
 ## 第二十一轮分析 — 2026/04/25
 
 ### 本轮扫描结论
