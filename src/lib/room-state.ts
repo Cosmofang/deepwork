@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { createClient } from '@/lib/supabase-server';
 import { DEFAULT_SECTION, normalizeSectionName } from '@/lib/sections';
-import { ROLES } from '@/lib/roles';
+import { ROLE_IDS, ROLES } from '@/lib/roles';
 import { Intent, Participant, RoleId, Room, RoomSection, SynthesisResult } from '@/types';
 import {
   DEEPWORK_SUPPORTED_EVENT_TYPES,
@@ -424,14 +424,56 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
   }
 
   const recommendedNextActions: string[] = [];
+
   if (snapshot.intents.length === 0) {
     recommendedNextActions.push('Collect at least one human or agent intent before synthesis.');
   }
+
   if (!snapshot.latestSynthesis && snapshot.intents.length > 0) {
     recommendedNextActions.push('Run synthesis to turn the current intent set into an attributed artifact.');
   }
+
+  // Stale synthesis: intents have been added since the last synthesis round.
+  if (snapshot.latestSynthesis && snapshot.intents.length > 0) {
+    const synthAt = new Date(snapshot.latestSynthesis.createdAt).getTime();
+    const newIntentCount = snapshot.intents.filter(
+      i => new Date(i.createdAt).getTime() > synthAt
+    ).length;
+    if (newIntentCount > 0) {
+      recommendedNextActions.push(
+        `Re-synthesize to incorporate ${newIntentCount} new intent${newIntentCount === 1 ? '' : 's'} added after round ${snapshot.latestSynthesis.round}.`
+      );
+    }
+  }
+
   if (proposedPatches.length > 0) {
-    recommendedNextActions.push('Review proposed patches and record decision.accepted or patch.applied events for accepted changes.');
+    recommendedNextActions.push(
+      `Review ${proposedPatches.length} proposed patch${proposedPatches.length === 1 ? '' : 'es'} — record decision.accepted or patch.applied for each accepted change.`
+    );
+  }
+
+  // Unresolved conflicts recorded in recent events.
+  const conflictIds = new Set(
+    recentEvents.filter(e => e.type === 'conflict.detected').map(e => e.conflictId || e.recordedAt)
+  );
+  const resolvedIds = new Set(
+    recentEvents.filter(e => e.type === 'decision.accepted').map(e => e.decisionId || '')
+  );
+  const unresolvedCount = Array.from(conflictIds).filter(id => !resolvedIds.has(id)).length;
+  if (unresolvedCount > 0) {
+    recommendedNextActions.push(
+      `Resolve ${unresolvedCount} unresolved conflict${unresolvedCount === 1 ? '' : 's'} — write a decision.accepted event for each resolved conflict.`
+    );
+  }
+
+  // Missing roles: name which of the 6 canonical roles have not yet joined.
+  const joinedRoles = new Set(snapshot.participants.map(p => p.role as RoleId));
+  const missingRoles = ROLE_IDS.filter(r => !joinedRoles.has(r));
+  if (missingRoles.length > 0 && snapshot.intents.length > 0) {
+    const labels = missingRoles.map(r => ROLES[r]?.label ?? r).join(', ');
+    recommendedNextActions.push(
+      `Invite the missing role${missingRoles.length === 1 ? '' : 's'} to contribute intent: ${labels}.`
+    );
   }
 
   const contributorsBySection = new Map<string, Set<string>>();
