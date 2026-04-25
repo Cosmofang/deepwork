@@ -527,3 +527,143 @@ User natural language
 4. 增加一个 writer path：至少支持 `intent.created`、`patch.proposed`、`artifact.updated`。
 5. 为 Claude + OpenClaw 写一份双机器测试脚本。
 
+---
+
+## 第七轮分析 — 2026/04/25
+
+### 本轮完成的改动
+
+#### ✅ 移动端适配 — 底部 Tab 栏
+**文件**：`src/app/room/[id]/page.tsx`
+
+**问题**：原页面使用固定三栏布局（左 w-72、中 flex-1、右 w-80），在手机屏幕上严重溢出，无法使用。演示时有参与者可能用手机加入。
+
+**解决方案**：引入 `MobileTab` 状态（`intent | flow | sections`），通过 Tailwind `md:` 断点实现响应式切换：
+
+- **桌面（≥768px）**：原三栏布局完全保留，行为不变
+- **移动端（<768px）**：
+  - 三栏变为单栏，通过 `hidden / flex` 切换显示
+  - 底部固定 Tab 栏（`md:hidden`），三个 Tab：✍️ 我的意图 / 💬 协作流 / 📋 板块状态
+  - 协作流 Tab 显示新意图数量角标（emerald 圆点）
+  - 当有意图时，Tab 栏上方出现全宽「合成 →」按钮
+  - Header 精简：`N人在线` 缩为 `N人`，名字在移动端隐藏，仅显示角色标签
+
+**技术细节**：
+- 默认 `mobileTab = 'flow'`（进入房间先看协作流，更直观）
+- 每个面板的 className：`${mobileTab === '...' ? 'flex' : 'hidden'} md:flex ...`
+- 移动端合成按钮条件：`intents.length > 0` 才出现，避免空状态困惑
+
+**构建验证：** ✅ `npm run build` 通过，room 页面 7.14 kB → 7.57 kB
+
+**Git push：** ✅ `55b35f8..8f0ca83  main -> main`
+
+---
+
+### 当前状态评估
+
+**演示就绪度：~99%**
+
+新增就绪项：
+- ✅ 移动端适配（手机用户可正常参与）
+
+所有代码功能已完成。剩余缺口（仅需非代码操作）：
+- ⚠️ `.env.local` 需手动配置（SUPABASE_URL/KEY + ANTHROPIC_API_KEY）
+- ⚠️ 未做过真实端到端测试（需要真实 API Keys）
+- ⚠️ 未部署到 Vercel（可选，localhost 也可演示）
+
+---
+
+### 4/30 Demo Day 最终检查清单
+
+代码层面（全部完成）：
+- ✅ 6角色加入 + 实时人数
+- ✅ 意图提交 + Realtime 广播
+- ✅ 板块管理（8个预设 + 自定义）
+- ✅ Demo 模式（一键填充 12 条意图）
+- ✅ 合成全屏 Overlay（双环动画 + 角色 pills + 板块分解）
+- ✅ Claude 合成（90s timeout + Vercel 120s maxDuration）
+- ✅ 归因 Overlay（hover → 角色颜色边框 + 底部 tooltip）
+- ✅ 全员自动跳转结果页
+- ✅ 多轮迭代历史（R1/R2/R3 切换）
+- ✅ 继续迭代闭环
+- ✅ 下载 HTML
+- ✅ 入口页产品说明
+- ✅ Demo 演示脚本（docs/demo-script.md）
+- ✅ 移动端适配（底部 Tab 栏）
+- ✅ 所有代码推送至 GitHub（8f0ca83）
+
+需手动完成（非代码）：
+- [ ] 配置 `.env.local` 并跑一次端到端
+- [ ] Vercel 部署（可选）
+- [ ] 4/29 彩排一次
+
+_下次更新：下轮自动分析时_
+
+---
+
+## 第八轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+git 工作区在本轮开始时已有干净的代码基线；项目已经从 hackathon landing-page demo 明确转向更大的 DeepWork 协议方向。当前 repo 里已经存在 `docs/plans/2026-04-25-autonomous-loop-and-agent-semantics.md`，并且 `src/lib/room-state.ts` 已经能把房间状态同步到 `.deepwork/rooms/<ROOM_ID>/snapshot.json`、`events.ndjson`、`summary.md`、`latest.html`。这说明“本地 project key + room snapshot + event stream”的雏形已经落地，但 TypeScript 代码层还缺少明确的协议类型约束。
+
+### 本轮核心判断
+
+下一个安全且方向正确的小步改进，不是继续加 UI demo 功能，而是把协议语义固化成代码可引用的 schema。原因是 DeepWork 的长期目标是让 Claude、OpenClaw、Hermes、Codex、VSCode 等不同 agent/client 能读同一个项目状态。如果事件类型仍然只是字符串约定，后续很容易退回“各 agent 各写各的日志”的状态。
+
+### 本轮完成的改动
+
+#### ✅ DeepWork Protocol TypeScript schema
+
+**文件**：`src/types/deepwork-protocol.ts`（新建），`src/types/index.ts`，`src/lib/room-state.ts`
+
+新增协议类型包括：
+
+- `DeepWorkProjectKey`：约束 `.deepwork/project.json` 的结构，包含 protocolVersion、projectId、stateMode、snapshot/events 路径、realtimeChannel、supportedEventTypes、outputs、permissions。
+- `DeepWorkEventType`：使用 agent-readable 的点分语义事件名，例如 `intent.created`、`patch.proposed`、`artifact.updated`、`synthesis.completed`。
+- `DeepWorkSemanticEvent` 及专用事件类型：为全部 v0.1 初始事件预留结构化字段，包括 `actor.joined`、`intent.created`、`section.created`、`decision.accepted`、`patch.proposed/patch.applied`、`artifact.updated`、`synthesis.started/completed`、`conflict.detected`、`summary.updated`。
+- `DeepWorkSnapshot`：定义面向 agent 快速读取的 snapshot 目标形态，包括 actors、sections、recentIntents、decisions、proposedPatches、latestArtifacts、unresolvedConflicts、recommendedNextActions。
+- `DEEPWORK_SUPPORTED_EVENT_TYPES`：作为 project key 宣告支持事件类型的单一来源。
+- `toSemanticEventType()`：将现有 legacy 事件名（如 `intent_created`、`synthesis_completed`）映射到协议事件名（如 `intent.created`、`synthesis.completed`）。
+
+#### ✅ project key 更接近协议 v0.1
+
+`src/lib/room-state.ts` 中写出的 `.deepwork/project.json` 现在带有：
+
+- `realtimeChannel: room:<roomId>`
+- `supportedEventTypes`
+- `permissions`
+- `DeepWorkProjectKey` 类型约束
+
+这让后续外部 agent 不只是“猜测”有哪些能力，而是可以从 project key 里读到当前协议声明。
+
+#### ✅ events.ndjson 从 legacy 字符串迁移到语义事件名
+
+`syncRoomStateToWorkspace()` 追加事件时会通过 `toSemanticEventPayload()` 转换事件名与基础字段。现有 legacy 调用方暂时不用改，仍然可以传 `intent_created` / `synthesis_started` 这类旧名称，但写入的事件流会变成 `intent.created` / `synthesis.started`，并带上 `projectId`、`roomId`、`actorId`、`summary`、`recordedAt` 等基础语义字段；`intent.created` 事件还会保留 `content` 字段，避免其他 agent 只能读摘要。`RoomStateEvent` 同时预留了 `patch.proposed`、`patch.applied`、`artifact.updated`、`decision.accepted`、`conflict.detected`、`summary.updated` 的关键字段（如 affectedFiles、linkedIntents、artifactPath、decisionId、conflictId），方便下一步接入 agent 写入路径。这是一个低风险迁移：对现有 UI 无破坏，同时让事件流更符合 agent-readable protocol。
+
+### 验证结果
+
+受当前会话工具限制，本轮没有成功执行 shell 命令；已通过 Read/Grep 静态复核关键文件，但仍需下轮或人工补跑 `npx tsc --noEmit`。
+
+未能启动隔离 worktree 子代理做二次验证，因为当前 Cowork 挂载路径未被 agent 工具识别为可创建 worktree 的 git repo；因此本轮采用主会话直接静态复核。
+
+未运行真实端到端合成，因为仍需要 `.env.local` 中的 Supabase 与 Anthropic key。这个限制与上一轮一致。
+
+### 当前状态评估
+
+DeepWork 现在同时有两个层次：
+
+1. demo 层：多人提交意图 → AI 合成 landing page → 归因展示，已基本 demo ready。
+2. 协议层：project key → snapshot → semantic events → artifact reference，正在从文档进入代码。
+
+本轮的价值在于把“协议不是口号”向前推进了一步：事件类型和 project key 不再只是文档，而开始成为工程中的约束。
+
+### 下一步建议
+
+1. 增加一个 `src/lib/deepwork-reader.ts`：读取 `.deepwork/project.json`、snapshot、recent events，输出单个 `AgentProjectContext`，供 Claude/OpenClaw 快速理解项目。
+2. 将 `RoomSnapshot` 逐步对齐 `DeepWorkSnapshot`，特别是 actors/recentIntents/latestArtifacts/decisions 字段。
+3. 增加 `patch.proposed` writer path，让 agent 修改文件时必须同时写 semantic patch record。
+4. 为双机器测试写 `docs/protocol-dual-machine-test.md`，明确 Claude 机器和 OpenClaw 机器分别执行什么动作、如何判断 convergence。
+
+_下次更新：下轮自动分析时_
+

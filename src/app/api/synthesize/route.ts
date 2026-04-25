@@ -186,10 +186,21 @@ ${intentLines}
     }
 
     await supabase.from('rooms').update({ status: 'done' }).eq('id', normalizedRoomId);
+
+    const round = (count ?? 0) + 1;
     await syncRoomStateToWorkspace(normalizedRoomId, {
       type: 'synthesis_completed',
-      round: (count ?? 0) + 1,
-      summary: `Round ${(count ?? 0) + 1} 已完成合成`,
+      round,
+      summary: `Round ${round} 已完成合成`,
+    });
+
+    // Record the HTML artifact so agents can discover it via events.ndjson
+    await syncRoomStateToWorkspace(normalizedRoomId, {
+      type: 'artifact.updated',
+      artifactType: 'html',
+      artifactPath: `.deepwork/rooms/${normalizedRoomId}/latest.html`,
+      attributionMap: output.attributionMap,
+      summary: `Round ${round} HTML 产物已写入 .deepwork/rooms/${normalizedRoomId}/latest.html`,
     });
 
     return NextResponse.json({ success: true });

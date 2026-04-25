@@ -1,4 +1,5 @@
 export type RoleId = 'designer' | 'copywriter' | 'developer' | 'product' | 'marketing' | 'employee';
+export * from './deepwork-protocol';
 
 export interface Participant {
   id: string;

@@ -4,17 +4,49 @@ import { createClient } from '@/lib/supabase-server';
 import { DEFAULT_SECTION, normalizeSectionName } from '@/lib/sections';
 import { ROLES } from '@/lib/roles';
 import { Intent, Participant, RoleId, Room, RoomSection, SynthesisResult } from '@/types';
+import {
+  DEEPWORK_SUPPORTED_EVENT_TYPES,
+  DeepWorkProjectKey,
+  DeepWorkSemanticEvent,
+  toSemanticEventType,
+} from '@/types/deepwork-protocol';
 
 type IntentWithParticipant = Intent & { participant: Participant | null };
 
 export interface RoomStateEvent {
-  type: 'room_joined' | 'intent_created' | 'section_added' | 'synthesis_started' | 'synthesis_completed';
+  type:
+    | 'room_joined'
+    | 'intent_created'
+    | 'section_added'
+    | 'synthesis_started'
+    | 'synthesis_completed'
+    | 'patch.proposed'
+    | 'patch.applied'
+    | 'artifact.updated'
+    | 'decision.accepted'
+    | 'conflict.detected'
+    | 'summary.updated';
   participantId?: string;
   participantName?: string;
   role?: RoleId;
   section?: string;
   summary?: string;
+  content?: string;
   round?: number;
+  linkedIntents?: string[];
+  affectedSections?: string[];
+  affectedFiles?: string[];
+  patchStatus?: 'proposed' | 'applied' | 'rejected' | 'superseded';
+  reason?: string;
+  artifactType?: 'html' | 'markdown' | 'doc' | 'code' | 'other';
+  artifactPath?: string;
+  attributionMap?: Record<string, string>;
+  decisionId?: string;
+  title?: string;
+  value?: string;
+  conflictId?: string;
+  sections?: string[];
+  actorIds?: string[];
 }
 
 interface RoomSnapshot {
@@ -121,7 +153,7 @@ function buildSummary(snapshot: RoomSnapshot) {
   return lines.join('\n');
 }
 
-async function loadSnapshot(roomId: string): Promise<RoomSnapshot> {
+export async function loadSnapshot(roomId: string): Promise<RoomSnapshot> {
   const supabase = createClient();
 
   const [{ data: room }, { data: participants }, { data: sections }, { data: intents }, { data: latestSynthesis }] =
@@ -250,7 +282,7 @@ async function writeProjectEntry(snapshot: RoomSnapshot, roomDir: string) {
 
   await fs.writeFile(indexPath, JSON.stringify(nextIndex, null, 2), 'utf8');
 
-  const projectKey = {
+  const projectKey: DeepWorkProjectKey = {
     protocolVersion: '0.1',
     projectId: 'deepwork',
     projectName: 'DeepWork',
@@ -259,14 +291,108 @@ async function writeProjectEntry(snapshot: RoomSnapshot, roomDir: string) {
     currentSnapshotPath: path.relative(process.cwd(), path.join(roomDir, 'snapshot.json')),
     roomsIndexPath: path.relative(process.cwd(), indexPath),
     eventsPath: path.relative(process.cwd(), path.join(roomDir, 'events.ndjson')),
+    realtimeChannel: `room:${snapshot.meta.roomId}`,
+    supportedEventTypes: DEEPWORK_SUPPORTED_EVENT_TYPES,
     outputs: {
       html: path.relative(process.cwd(), path.join(roomDir, 'latest.html')),
       summary: path.relative(process.cwd(), path.join(roomDir, 'summary.md')),
+    },
+    permissions: {
+      humanCanPropose: true,
+      agentCanPropose: true,
+      agentCanSynthesize: false,
+      agentCanApplyPatch: false,
     },
     updatedAt: snapshot.meta.updatedAt,
   };
 
   await fs.writeFile(path.join(DEEPWORK_ROOT, 'project.json'), JSON.stringify(projectKey, null, 2), 'utf8');
+}
+
+function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWorkSemanticEvent {
+  const type = toSemanticEventType(event.type);
+  const base = {
+    type,
+    projectId: 'deepwork',
+    roomId,
+    actorId: event.participantId,
+    participantId: event.participantId,
+    participantName: event.participantName,
+    role: event.role,
+    summary: event.summary || type,
+    recordedAt: new Date().toISOString(),
+  };
+
+  switch (type) {
+    case 'intent.created':
+      return {
+        ...base,
+        type,
+        section: event.section || DEFAULT_SECTION,
+        content: event.content || event.summary || '',
+      };
+    case 'section.created':
+      return {
+        ...base,
+        type,
+        section: event.section || DEFAULT_SECTION,
+      };
+    case 'actor.joined':
+      return {
+        ...base,
+        type,
+      };
+    case 'synthesis.started':
+    case 'synthesis.completed':
+      return {
+        ...base,
+        type,
+        round: event.round,
+      };
+    case 'patch.proposed':
+    case 'patch.applied':
+      return {
+        ...base,
+        type,
+        status: event.patchStatus ?? (type === 'patch.proposed' ? 'proposed' : 'applied'),
+        linkedIntents: event.linkedIntents,
+        affectedSections: event.affectedSections,
+        affectedFiles: event.affectedFiles,
+        reason: event.reason,
+      };
+    case 'artifact.updated':
+      return {
+        ...base,
+        type,
+        artifactType: event.artifactType || 'other',
+        artifactPath: event.artifactPath,
+        attributionMap: event.attributionMap,
+      };
+    case 'decision.accepted':
+      return {
+        ...base,
+        type,
+        decisionId: event.decisionId,
+        title: event.title,
+        value: event.value,
+      };
+    case 'conflict.detected':
+      return {
+        ...base,
+        type,
+        conflictId: event.conflictId,
+        sections: event.sections,
+        actorIds: event.actorIds,
+      };
+    case 'summary.updated':
+      return {
+        ...base,
+        type,
+        section: event.section || DEFAULT_SECTION,
+      };
+    default:
+      throw new Error(`Unsupported DeepWork semantic event type: ${type}`);
+  }
 }
 
 export async function syncRoomStateToWorkspace(roomId: string, event?: RoomStateEvent) {
@@ -291,11 +417,7 @@ export async function syncRoomStateToWorkspace(roomId: string, event?: RoomState
   }
 
   if (event) {
-    const eventPayload = {
-      ...event,
-      roomId,
-      recordedAt: new Date().toISOString(),
-    };
+    const eventPayload = toSemanticEventPayload(roomId, event);
     await fs.appendFile(path.join(roomDir, 'events.ndjson'), `${JSON.stringify(eventPayload)}\n`, 'utf8');
   }
 

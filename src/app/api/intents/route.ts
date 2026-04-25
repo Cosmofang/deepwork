@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
     role: participant?.role,
     section,
     summary: content,
+    content,
   });
 
   return NextResponse.json({ intent });
