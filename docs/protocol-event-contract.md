@@ -174,9 +174,11 @@ The endpoint normalizes `projectId`, `roomId`, and `recordedAt`, appends one JSO
 
 ## Snapshot Implications
 
-`GET /api/workspace?roomId=<ROOM_ID>` returns a protocol-level snapshot built from room state plus recent semantic events. Recent patch events appear in `snapshot.proposedPatches`. Accepted decisions appear in `snapshot.decisions`. Artifact events appear in `snapshot.latestArtifacts`. Conflict events appear in `snapshot.unresolvedConflicts`. Recommended next actions are derived from whether there are intents, synthesis results, and proposed patches.
+`GET /api/workspace?roomId=<ROOM_ID>` returns a protocol-level snapshot built from room state plus recent semantic events. Recent patch events appear in `snapshot.proposedPatches`. Accepted decisions appear in `snapshot.decisions`. Artifact events appear in `snapshot.latestArtifacts`. Conflict events appear in `snapshot.unresolvedConflicts`.
 
-This means the first dual-machine test should verify not only that `events.ndjson` receives a line, but also that the workspace reader translates that line into the correct snapshot field.
+`snapshot.recommendedNextActions` is intentionally structured rather than plain text. Each action includes `id`, `priority`, `summary`, `reason`, optional `suggestedAction`, and optional protocol hints such as `eventTypes`, `affectedSections`, `affectedFiles`, and `linkedEventIds`. This lets another agent distinguish urgent governance blockers from lower-priority demo completeness suggestions, and lets it choose the correct next event to write without parsing prose.
+
+This means the first dual-machine test should verify not only that `events.ndjson` receives a line, but also that the workspace reader translates that line into the correct snapshot field and the correct structured recommended action when action is needed.
 
 ## Open Questions
 

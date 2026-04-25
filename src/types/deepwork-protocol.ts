@@ -129,6 +129,20 @@ export type DeepWorkSemanticEvent =
   | DeepWorkConflictDetectedEvent
   | DeepWorkSummaryUpdatedEvent;
 
+export type DeepWorkActionPriority = 'p0' | 'p1' | 'p2';
+
+export interface DeepWorkRecommendedAction {
+  id: string;
+  priority: DeepWorkActionPriority;
+  summary: string;
+  reason: string;
+  eventTypes?: DeepWorkEventType[];
+  affectedSections?: string[];
+  affectedFiles?: string[];
+  linkedEventIds?: string[];
+  suggestedAction?: 'write_event' | 'run_synthesis' | 'invite_actor' | 'review_patch';
+}
+
 export interface DeepWorkSnapshot {
   meta: {
     projectId: string;
@@ -177,7 +191,7 @@ export interface DeepWorkSnapshot {
     sections?: string[];
     actorIds?: string[];
   }>;
-  recommendedNextActions?: string[];
+  recommendedNextActions?: DeepWorkRecommendedAction[];
 }
 
 export const DEEPWORK_SUPPORTED_EVENT_TYPES: DeepWorkEventType[] = [

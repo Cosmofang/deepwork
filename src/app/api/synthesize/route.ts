@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 // Vercel: allow up to 120s for Claude synthesis (default is 10s)
 export const maxDuration = 120;
@@ -202,6 +204,30 @@ ${intentLines}
       attributionMap: output.attributionMap,
       summary: `Round ${round} HTML 产物已写入 .deepwork/rooms/${normalizedRoomId}/latest.html`,
     });
+
+    // Write conflict.detected protocol events for any synthesis-detected conflicts
+    // so that recommendedNextActions can surface them as governance hooks.
+    const unresolved = (output.conflictsDetected ?? []).filter(
+      desc => !(output.conflictsResolved ?? []).some(r => r.includes(desc) || desc.includes(r))
+    );
+    if (unresolved.length > 0) {
+      const safeId = normalizedRoomId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const eventsPath = path.join(process.cwd(), '.deepwork', 'rooms', safeId, 'events.ndjson');
+      const now = new Date().toISOString();
+      await Promise.all(
+        unresolved.map((desc, i) => {
+          const conflictEvent = {
+            type: 'conflict.detected',
+            projectId: 'deepwork',
+            roomId: normalizedRoomId,
+            summary: desc,
+            conflictId: `synth-r${round}-c${i}`,
+            recordedAt: now,
+          };
+          return fs.appendFile(eventsPath, `${JSON.stringify(conflictEvent)}\n`, 'utf8');
+        })
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch {

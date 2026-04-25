@@ -7,9 +7,11 @@ import { Intent, Participant, RoleId, Room, RoomSection, SynthesisResult } from 
 import {
   DEEPWORK_SUPPORTED_EVENT_TYPES,
   DeepWorkArtifactUpdatedEvent,
+  DeepWorkConflictDetectedEvent,
   DeepWorkProjectKey,
   DeepWorkSnapshot,
   DeepWorkPatchEvent,
+  DeepWorkRecommendedAction,
   DeepWorkSemanticEvent,
   toSemanticEventType,
 } from '@/types/deepwork-protocol';
@@ -423,47 +425,87 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
     });
   }
 
-  const recommendedNextActions: string[] = [];
+  const recommendedNextActions: DeepWorkRecommendedAction[] = [];
 
   if (snapshot.intents.length === 0) {
-    recommendedNextActions.push('Collect at least one human or agent intent before synthesis.');
+    recommendedNextActions.push({
+      id: 'collect-first-intent',
+      priority: 'p0',
+      summary: 'Collect at least one human or agent intent before synthesis.',
+      reason: 'Synthesis should be grounded in explicit shared intent rather than an empty room.',
+      eventTypes: ['intent.created'],
+      suggestedAction: 'write_event',
+    });
   }
 
   if (!snapshot.latestSynthesis && snapshot.intents.length > 0) {
-    recommendedNextActions.push('Run synthesis to turn the current intent set into an attributed artifact.');
+    recommendedNextActions.push({
+      id: 'run-first-synthesis',
+      priority: 'p0',
+      summary: 'Run synthesis to turn the current intent set into an attributed artifact.',
+      reason: 'The room has intent records but no visible synthesized artifact yet.',
+      eventTypes: ['synthesis.started', 'synthesis.completed', 'artifact.updated'],
+      suggestedAction: 'run_synthesis',
+    });
   }
 
   // Stale synthesis: intents have been added since the last synthesis round.
   if (snapshot.latestSynthesis && snapshot.intents.length > 0) {
     const synthAt = new Date(snapshot.latestSynthesis.createdAt).getTime();
-    const newIntentCount = snapshot.intents.filter(
+    const newIntents = snapshot.intents.filter(
       i => new Date(i.createdAt).getTime() > synthAt
-    ).length;
-    if (newIntentCount > 0) {
-      recommendedNextActions.push(
-        `Re-synthesize to incorporate ${newIntentCount} new intent${newIntentCount === 1 ? '' : 's'} added after round ${snapshot.latestSynthesis.round}.`
-      );
+    );
+    if (newIntents.length > 0) {
+      const affectedSections = Array.from(new Set(newIntents.map(intent => intent.section)));
+      recommendedNextActions.push({
+        id: `resynthesize-after-round-${snapshot.latestSynthesis.round}`,
+        priority: 'p0',
+        summary: `Re-synthesize to incorporate ${newIntents.length} new intent${newIntents.length === 1 ? '' : 's'} added after round ${snapshot.latestSynthesis.round}.`,
+        reason: 'The latest artifact no longer reflects all recorded intent in the shared project state.',
+        eventTypes: ['synthesis.started', 'synthesis.completed', 'artifact.updated'],
+        suggestedAction: 'run_synthesis',
+        affectedSections,
+        linkedEventIds: newIntents.map(intent => intent.id),
+      });
     }
   }
 
   if (proposedPatches.length > 0) {
-    recommendedNextActions.push(
-      `Review ${proposedPatches.length} proposed patch${proposedPatches.length === 1 ? '' : 'es'} — record decision.accepted or patch.applied for each accepted change.`
-    );
+    const affectedSections = Array.from(new Set(proposedPatches.flatMap(patch => patch.affectedSections ?? [])));
+    const affectedFiles = Array.from(new Set(proposedPatches.flatMap(patch => patch.affectedFiles ?? [])));
+    recommendedNextActions.push({
+      id: 'review-proposed-patches',
+      priority: 'p1',
+      summary: `Review ${proposedPatches.length} proposed patch${proposedPatches.length === 1 ? '' : 'es'} — record decision.accepted or patch.applied for each accepted change.`,
+      reason: 'Proposed agent or human changes should be governed explicitly before they become shared project state.',
+      eventTypes: ['decision.accepted', 'patch.applied'],
+      suggestedAction: 'review_patch',
+      affectedSections: affectedSections.length ? affectedSections : undefined,
+      affectedFiles: affectedFiles.length ? affectedFiles : undefined,
+      linkedEventIds: proposedPatches.map(patch => patch.id || patch.recordedAt),
+    });
   }
 
   // Unresolved conflicts recorded in recent events.
-  const conflictIds = new Set(
-    recentEvents.filter(e => e.type === 'conflict.detected').map(e => e.conflictId || e.recordedAt)
+  const conflictEvents = recentEvents.filter(
+    (event): event is DeepWorkConflictDetectedEvent => event.type === 'conflict.detected'
   );
   const resolvedIds = new Set(
     recentEvents.filter(e => e.type === 'decision.accepted').map(e => e.decisionId || '')
   );
-  const unresolvedCount = Array.from(conflictIds).filter(id => !resolvedIds.has(id)).length;
-  if (unresolvedCount > 0) {
-    recommendedNextActions.push(
-      `Resolve ${unresolvedCount} unresolved conflict${unresolvedCount === 1 ? '' : 's'} — write a decision.accepted event for each resolved conflict.`
-    );
+  const unresolvedConflicts = conflictEvents.filter(event => !resolvedIds.has(event.conflictId || event.recordedAt));
+  if (unresolvedConflicts.length > 0) {
+    const affectedSections = Array.from(new Set(unresolvedConflicts.flatMap(event => event.sections ?? [])));
+    recommendedNextActions.push({
+      id: 'resolve-open-conflicts',
+      priority: 'p0',
+      summary: `Resolve ${unresolvedConflicts.length} unresolved conflict${unresolvedConflicts.length === 1 ? '' : 's'} — write a decision.accepted event for each resolved conflict.`,
+      reason: 'Conflicts are governance hooks; synthesis should not silently hide incompatible requirements.',
+      eventTypes: ['decision.accepted'],
+      suggestedAction: 'write_event',
+      affectedSections: affectedSections.length ? affectedSections : undefined,
+      linkedEventIds: unresolvedConflicts.map(event => event.id || event.conflictId || event.recordedAt),
+    });
   }
 
   // Missing roles: name which of the 6 canonical roles have not yet joined.
@@ -471,9 +513,14 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
   const missingRoles = ROLE_IDS.filter(r => !joinedRoles.has(r));
   if (missingRoles.length > 0 && snapshot.intents.length > 0) {
     const labels = missingRoles.map(r => ROLES[r]?.label ?? r).join(', ');
-    recommendedNextActions.push(
-      `Invite the missing role${missingRoles.length === 1 ? '' : 's'} to contribute intent: ${labels}.`
-    );
+    recommendedNextActions.push({
+      id: 'invite-missing-roles',
+      priority: 'p2',
+      summary: `Invite the missing role${missingRoles.length === 1 ? '' : 's'} to contribute intent: ${labels}.`,
+      reason: 'The demo and protocol both depend on preserving multiple perspectives before synthesis.',
+      eventTypes: ['actor.joined', 'intent.created'],
+      suggestedAction: 'invite_actor',
+    });
   }
 
   const contributorsBySection = new Map<string, Set<string>>();
