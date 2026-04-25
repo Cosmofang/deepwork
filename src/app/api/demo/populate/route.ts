@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase-server';
 import { ROLE_IDS, ROLES } from '@/lib/roles';
 import { normalizeSectionName } from '@/lib/sections';
 import { RoleId } from '@/types';
+import { syncRoomStateToWorkspace, RoomStateEvent } from '@/lib/room-state';
 
 // POST /api/demo/populate
 // Creates synthetic participants for any roles not yet in the room,
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
   }
 
   let totalIntents = 0;
+  const workspaceEvents: RoomStateEvent[] = [];
 
   // For each missing role: create participant then submit their demo intents
   for (const roleId of missingRoles) {
@@ -58,6 +60,14 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (pErr || !participant) continue;
+
+    workspaceEvents.push({
+      type: 'room_joined',
+      participantId: participant.id,
+      participantName: participant.name,
+      role: roleId,
+      summary: `${participant.name} 以 ${roleInfo.label} 身份加入演示房间`,
+    });
 
     for (const demo of roleInfo.demoIntents) {
       const section = normalizeSectionName(demo.section);
@@ -79,8 +89,23 @@ export async function POST(req: NextRequest) {
           content: demo.content,
         });
 
-      if (!intentErr) totalIntents++;
+      if (!intentErr) {
+        totalIntents++;
+        workspaceEvents.push({
+          type: 'intent_created',
+          participantId: participant.id,
+          participantName: participant.name,
+          role: roleId,
+          section,
+          summary: demo.content,
+          content: demo.content,
+        });
+      }
     }
+  }
+
+  for (const event of workspaceEvents) {
+    await syncRoomStateToWorkspace(roomId, event);
   }
 
   return NextResponse.json({ added: missingRoles.length, intents: totalIntents });
