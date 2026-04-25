@@ -1129,3 +1129,102 @@ DeepWork 的 demo 叙事核心是”6 个不同视角汇聚成一个共享工件
 3. 可继续加强 `recommendedNextActions`：检测”有新意图但最近一次合成后没有新 round”→ 提示重新合成；检测”有 patch.proposed 但超过 N 分钟无 decision.accepted”→ 提示 review。
 
 _下次更新：下轮自动分析时_
+
+---
+
+## 第十八轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+本轮重点检查协议层与双机器测试相关文件：`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/route.ts`、`src/app/api/workspace/events/route.ts`、`docs/protocol-dual-machine-test.md`、`docs/plans/2026-04-25-autonomous-loop-and-agent-semantics.md`。当前代码已经具备 DeepWork v0.1 协议骨架：project key、协议级 snapshot、recentEvents、外部 agent semantic writer、artifact reference、writer metadata refresh 和 writer semantic validation。
+
+本轮没有发现必须立刻修改的运行时代码。更安全且方向正确的小步，是把“事件契约”从测试文档和 TypeScript 类型中抽出为独立协议文档，方便 Claude、OpenClaw、Hermes、Codex、VSCode 等外部 agent/client 在不读源码的情况下知道如何写入共享项目状态。
+
+### 本轮完成的改动
+
+#### ✅ DeepWork Protocol v0.1 Semantic Event Contract
+
+**文件**：`docs/protocol-event-contract.md`（新建）
+
+新增文档明确了：
+
+- semantic event 是 durable collaboration layer，不是聊天转述。
+- 所有事件的基础字段：`type`、`projectId`、`roomId`、`summary`、`recordedAt`，以及可选 actor/participant/role 字段。
+- 当前支持事件类型：`intent.created`、`patch.proposed`、`patch.applied`、`artifact.updated`、`decision.accepted`、`conflict.detected`、`summary.updated` 等。
+- 外部 writer endpoint 接受哪些事件，不接受哪些事件；`synthesis.*` 仍应由 synthesis flow 写入。
+- 每种关键事件的 JSON 示例和语义约束，尤其是 `patch.proposed` / `patch.applied` 必须至少包含 `linkedIntents`、`affectedSections`、`affectedFiles` 中的一类，避免 agent 写入无法指导协作的空洞 patch。
+- `GET /api/workspace` 如何把 recent semantic events 映射成 `snapshot.proposedPatches`、`snapshot.decisions`、`snapshot.latestArtifacts`、`snapshot.unresolvedConflicts` 和 `recommendedNextActions`。
+- 当前仍未解决的问题：本地 `.deepwork` 作为 cache/export 可以证明协议形态，但首次跨机器测试仍应优先使用同一个 Supabase + HTTP reader/writer 作为 canonical state。
+
+### 为什么这是方向正确的小改动
+
+DeepWork 的长期目标不是让某一个 agent 会调用某个 API，而是让多个 agent/client 共享同一套项目语义。`docs/protocol-dual-machine-test.md` 告诉我们如何测试，`src/types/deepwork-protocol.ts` 告诉 TypeScript 如何约束，而本轮新增的 event contract 告诉外部 agent “应该写什么、为什么写、最少写到什么语义密度”。这能降低未来 Claude/OpenClaw 双机器测试时的解释成本，也避免协议知识只埋在源码里。
+
+### 验证状态
+
+本轮为文档新增，不修改运行时代码。已静态核对文档中的事件名与当前 `src/types/deepwork-protocol.ts`、`src/app/api/workspace/events/route.ts` 保持一致；文档中的 patch 约束也与 writer endpoint 当前的 `hasSemanticLinkage()` 规则一致。未运行 `npm run build`，因为没有 TypeScript/React 代码变更。
+
+### 下一步建议
+
+1. 执行最小双机器模拟测试：Machine A 写 `intent.created`，Machine B 只通过 `GET /api/workspace` 读 recentEvents 后写 `patch.proposed`，Machine A 再读并解释 patch。
+2. 如果模拟测试通过，把测试结果按 `docs/protocol-dual-machine-test.md` 的模板写回 `work-log.md`。
+3. 后续可以把 `recommendedNextActions` 做得更智能，例如检测”有新 intent 但最近 synthesis 早于该 intent”时提示重新合成，检测”有 patch.proposed 但没有 decision.accepted/patch.applied”时提示 review。
+
+_下次更新：下轮自动分析时_
+
+---
+
+## 第十九轮分析 — 2026/04/25
+
+### 本轮扫描结论
+
+三轮次的”下一步建议”都指向同一件事：把 `recommendedNextActions` 升级为能感知房间实际状态的智能指导。这是 agent-readable protocol 可执行性最直接的改进，Machine B 读 `GET /api/workspace` 时能得到精确的行动建议。同时发现 `docs/protocol-event-contract.md` 处于 untracked 状态，一并提交。
+
+### 本轮完成的改动
+
+#### ✅ `recommendedNextActions` 智能升级
+
+**文件**：`src/lib/room-state.ts`
+
+新增 `ROLE_IDS` import（已有 `ROLES`），将原有 3 条简单规则扩展为 6 条上下文感知规则：
+
+| 规则 | 触发条件 | 提示内容 |
+|------|---------|---------|
+| 无 intents | `intents.length === 0` | 收集意图 |
+| 首次合成 | `!latestSynthesis && intents > 0` | 运行合成 |
+| **过期合成** | synthesis 之后有新 intents | “Re-synthesize to incorporate N new intents added after round R” |
+| **Patch 积压** | `proposedPatches.length > 0` | “Review N proposed patches — record decision / patch.applied” |
+| **未解决冲突** | `conflict.detected` 无对应 `decision.accepted` | “Resolve N unresolved conflicts” |
+| **缺席角色** | 6 角色中有未加入者（且房间已有 intents） | “Invite missing roles: Designer, Copywriter, ...” |
+
+技术细节：过期合成通过 `intent.createdAt > latestSynthesis.createdAt` 统计；未解决冲突通过 `conflictIds`（来自 `conflict.detected`）减去 `resolvedIds`（来自 `decision.accepted.decisionId`）；缺席角色用 `ROLE_IDS.filter(r => !joinedRoles.has(r))`。首次编译失败：`[...Set]` spread 在 TS target < es2015 不合法，改为 `Array.from()` 后通过。
+
+#### ✅ `docs/protocol-event-contract.md` 提交
+
+第十八轮新增但未提交的协议文档一并 commit。
+
+#### ✅ npm run build — 12/12 路由通过
+
+#### ✅ 提交并推送
+
+```
+commit 1ed7dbd — feat: smarter recommendedNextActions — stale synthesis, missing roles, conflict backlog, patch count
+push: main → origin (SSH)
+```
+
+### 为什么这是高价值改动
+
+`recommendedNextActions` 是 agent-readable protocol 中”告诉 Machine B 下一步做什么”的核心字段。升级后它能说”Round 2 后来了 3 条新意图，重新合成”或”Designer 和 Copywriter 还没加入，邀请他们”，直接降低双机器测试中错误行动的概率，也让 demo 中”AI 自动建议下一步”的叙事更有说服力。
+
+### 验证状态
+
+- ✅ `npm run build` — 12/12 路由通过
+- ✅ `git push` — `1ed7dbd` 已推到 `main`
+
+### 下一步建议
+
+1. 用 curl 模拟双机器测试：向 `POST /api/workspace/events` 写 `conflict.detected`，再调 `GET /api/workspace?roomId=TEST` 验证 `recommendedNextActions` 出现 “Resolve 1 unresolved conflict”。
+2. 提交并 push 本轮 `work-log.md` 更新。
+3. 配置 `.env.local` 跑端到端 demo，验证真实房间中角色名册 + 新版 recommendedNextActions 的表现。
+
+_下次更新：下轮自动分析时_
