@@ -2,6 +2,83 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第五十七轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+P0 项（需要真实凭据）跳过。对比优先级列表中的 P2（真实 SSE 合成进度）与代码库全量扫描的结果，本轮识别出一个对演示叙事影响更大的缺口：**迭代 UX 无上下文**——用户点击"继续迭代"返回房间页面后，没有任何视觉表示当前在第几轮、哪些意图是上一轮的、哪些是本轮新增的。
+
+### 问题分析
+
+演示核心叙事之一是"多角色协作 → 合成 → 再迭代"的闭环。但现状：
+
+1. 点击"继续迭代"后，房间页面回到一个堆满 Round 1 所有意图的视图，Round 1 和 Round 2 的意图外观完全相同
+2. 页面头部没有"Round 2"指示，观众和演示者都不清楚当前是在准备第几轮合成
+3. 合成 overlay 始终显示"AI 正在合成"，不区分是 Round 1 还是 Round 2，弱化了"迭代改进"的视觉节奏
+4. 右侧板块状态底部卡片的"通常需要 30–90 秒"文案在 Cycle 54 切换为 sonnet 后未更新（实际 20–40 秒）
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — "继续迭代"时存入轮次上下文
+
+`handleContinue` 在 `router.push` 前新增一行：
+```js
+localStorage.setItem(`after_round:${id}`, String(latestRound));
+```
+键名携带 roomId 避免多房间干扰。
+
+#### ✅ `src/app/room/[id]/page.tsx` — 四处改动
+
+**1. 迭代轮次状态**
+
+新增两个 state：
+- `afterRound: number` — 从 localStorage 读取上一轮轮次（0 = 未知，首次进入）
+- `lastSynthesisAt: string | null` — 从 Supabase `synthesis_results` 查询对应轮次的 `created_at`
+
+新增 `useEffect`：mount 时读取 `localStorage.getItem(`after_round:${id}`)` 并立即 fetch 对应合成的时间戳。
+
+**2. 头部 Round 徽章**
+
+当 `afterRound > 0` 时，在房间码右侧显示琥珀色小圆圈 + "迭代 Round N" 文字，演示者可以直接指着屏幕说"现在在第 N 轮"。
+
+**3. 意图流按轮分组**
+
+利用 `lastSynthesisAt` 时间戳将 `filteredIntents` 拆为两组：
+- `prevRoundIntents`（`created_at ≤ lastSynthesisAt`）：以 `opacity-35` 渲染，顶部显示 `"Round N · {N} 条已收录"` 分隔线
+- `thisRoundIntents`（`created_at > lastSynthesisAt`）：正常渲染，顶部显示 `"Round N+1 新增意图"` 琥珀色分隔线
+
+不修改分组内部的卡片结构，`isNew` 标记、hover 样式全部保留。
+
+**4. 合成 overlay 显示轮次**
+
+标题从"AI 正在合成"变为 `"AI 正在合成 Round {N}"`（N > 1 时），副文字从 `{N} 条意图 → 一个产物` 变为 `在第 {N-1} 轮基础上增量`。
+
+**5. localStorage 清理**
+
+`triggerSynthesis` 的成功分支和 Realtime `status === 'done'` 分支均调用 `localStorage.removeItem(`after_round:${id}`)` 防止轮次 badge 在结果页返回后脏留。
+
+**6. 小修：sections 底部合成状态文案**
+
+`"通常需要 30–90 秒"` → `"通常需要 20–40 秒"`（与 Cycle 54 切换为 sonnet 对齐）。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`/room/[id]` bundle 8.04 kB → 8.56 kB（+520 bytes，新增轮次状态和分组渲染）。
+
+### 当前已知限制（未改动）
+
+- 轮次 badge 只在 localStorage 有记录时出现（首次进入或直接打开 URL 不显示）
+- 合成进度仍为客户端时间估算，非服务端驱动
+- `.deepwork/` 文件本地单机落盘
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P2**：合成进度真正暴露（SSE 或 streaming），阶段标签改为服务端驱动
+
+---
+
 ## 第五十六轮分析 — 2026/04/27
 
 ### 本轮扫描结论

@@ -111,6 +111,8 @@ export default function ResultPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roomId: id }),
     });
+    // Store round context so the room page can show "Round N+1" and separate old intents.
+    localStorage.setItem(`after_round:${id}`, String(latestRound));
     router.push(`/room/${id}`);
   };
 

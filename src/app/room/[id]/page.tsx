@@ -54,6 +54,9 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [populating, setPopulating] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('flow');
+  // Iteration context: set when user navigates back from the result page via "继续迭代".
+  const [afterRound, setAfterRound] = useState(0);
+  const [lastSynthesisAt, setLastSynthesisAt] = useState<string | null>(null);
   const intentsEndRef = useRef<HTMLDivElement>(null);
   const prevRoomStatusRef = useRef<'collecting' | 'synthesizing' | 'done'>('collecting');
   const synthesisStartRef = useRef<number | null>(null);
@@ -149,6 +152,25 @@ export default function RoomPage() {
       });
   }, [id]);
 
+  // Read iteration context from localStorage (set by result page on "继续迭代").
+  useEffect(() => {
+    const stored = localStorage.getItem(`after_round:${id}`);
+    if (!stored) return;
+    const round = parseInt(stored, 10);
+    if (!round || isNaN(round)) return;
+    setAfterRound(round);
+    // Fetch the timestamp of that synthesis round so we can split old vs. new intents.
+    supabase
+      .from('synthesis_results')
+      .select('created_at')
+      .eq('room_id', id)
+      .eq('round', round)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.created_at) setLastSynthesisAt(data.created_at as string);
+      });
+  }, [id, supabase]);
+
   useEffect(() => {
     const channel = supabase
       .channel(`intents:${id}`)
@@ -208,6 +230,7 @@ export default function RoomPage() {
         setRoomStatus(status);
         setSynthesizing(status === 'synthesizing');
         if (status === 'done') {
+          localStorage.removeItem(`after_round:${id}`);
           router.push(`/room/${id}/result`);
         }
       })
@@ -296,7 +319,10 @@ export default function RoomPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomId: id }),
       });
-      if (res.ok) router.push(`/room/${id}/result`);
+      if (res.ok) {
+        localStorage.removeItem(`after_round:${id}`);
+        router.push(`/room/${id}/result`);
+      }
       else {
         const errorBody = await res.json().catch(() => null);
         setRequestError(errorBody?.error || '合成失败，请重试');
@@ -346,6 +372,15 @@ export default function RoomPage() {
 
   const synthesisPhase = SYNTHESIS_PHASES.filter(p => synthesisElapsed >= p.after).at(-1)!;
 
+  const currentRound = afterRound + 1;
+  // Split intents into previous-round (before last synthesis) and this-round (after).
+  const prevRoundIntents = lastSynthesisAt
+    ? filteredIntents.filter(i => new Date(i.created_at) <= new Date(lastSynthesisAt))
+    : [];
+  const thisRoundIntents = lastSynthesisAt
+    ? filteredIntents.filter(i => new Date(i.created_at) > new Date(lastSynthesisAt))
+    : filteredIntents;
+
   // All contributing role IDs (deduped), used in the synthesis overlay
   const contributingRoleIds = Array.from(
     new Set(
@@ -386,13 +421,17 @@ export default function RoomPage() {
               </div>
             </div>
 
-            <h2 className="text-xl font-semibold text-white mb-2">AI 正在合成</h2>
+            <h2 className="text-xl font-semibold text-white mb-2">
+              AI 正在合成{afterRound > 0 ? <span className="text-amber-400"> Round {currentRound}</span> : ''}
+            </h2>
             <p className="text-gray-500 text-sm mb-8">
               整合{' '}
               <span className="text-white font-medium">{contributingRoleIds.length} 个角色</span>
               {' '}·{' '}
               <span className="text-white font-medium">{intents.length} 条意图</span>
-              {' '}→ 一个产物
+              {afterRound > 0 ? (
+                <>{' '}·{' '}<span className="text-amber-400/70 text-xs">在第 {afterRound} 轮基础上增量</span></>
+              ) : ' → 一个产物'}
             </p>
 
             {/* Contributing role pills */}
@@ -471,6 +510,12 @@ export default function RoomPage() {
           >
             {copied ? '已复制 ✓' : id}
           </button>
+          {afterRound > 0 && (
+            <span className="hidden md:inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border border-amber-500/30 text-amber-400 bg-amber-500/08 flex-shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+              迭代 Round {currentRound}
+            </span>
+          )}
           {participants.length > 0 && (
             <span className="text-xs text-gray-600 flex-shrink-0">{participants.length}人</span>
           )}
@@ -662,47 +707,94 @@ export default function RoomPage() {
                 <p className="mt-2 text-xs text-gray-700">分享房间代码 <span className="font-mono text-gray-500">{id}</span> 给队友</p>
               </div>
             ) : (
-              filteredIntents.map(intent => {
-                const p = intent.participant;
-                const r = p ? ROLES[p.role as RoleId] : null;
-                const isNew = newIntentIds.includes(intent.id);
-                return (
-                  <div
-                    key={intent.id}
-                    className="flex gap-3 rounded-2xl border p-3 transition-colors"
-                    style={
-                      isNew
-                        ? { borderColor: 'rgba(16,185,129,0.32)', backgroundColor: 'rgba(16,185,129,0.08)' }
-                        : { borderColor: 'rgba(255,255,255,0.05)', backgroundColor: 'rgba(255,255,255,0.02)' }
-                    }
-                  >
-                    <div
-                      className="w-0.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: r?.color || '#444' }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium" style={{ color: r?.color || '#888' }}>
-                          {p?.name || '匿名'}
-                        </span>
-                        <span className="text-xs text-gray-600">{r?.label}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-400 border border-white/5">
-                          {normalizeSectionName(intent.section)}
-                        </span>
-                        {isNew && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">
-                            NEW
-                          </span>
-                        )}
-                        <span className="text-xs text-gray-700 ml-auto">
-                          {new Date(intent.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-300 leading-relaxed">{intent.content}</p>
+              <>
+                {/* Previous-round intents — dimmed, collapsed visually under a round divider */}
+                {prevRoundIntents.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-3 px-1">
+                      <div className="flex-1 h-px bg-white/[0.06]" />
+                      <span className="text-[10px] text-gray-700 whitespace-nowrap">Round {afterRound} · {prevRoundIntents.length} 条已收录</span>
+                      <div className="flex-1 h-px bg-white/[0.06]" />
                     </div>
+                    {prevRoundIntents.map(intent => {
+                      const p = intent.participant;
+                      const r = p ? ROLES[p.role as RoleId] : null;
+                      return (
+                        <div
+                          key={intent.id}
+                          className="flex gap-3 rounded-2xl border p-3 opacity-35"
+                          style={{ borderColor: 'rgba(255,255,255,0.04)', backgroundColor: 'rgba(255,255,255,0.01)' }}
+                        >
+                          <div className="w-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: r?.color || '#333' }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-medium" style={{ color: r?.color || '#888' }}>{p?.name || '匿名'}</span>
+                              <span className="text-xs text-gray-600">{r?.label}</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-500 border border-white/5">{normalizeSectionName(intent.section)}</span>
+                            </div>
+                            <p className="text-sm text-gray-500 leading-relaxed">{intent.content}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {thisRoundIntents.length > 0 && (
+                      <div className="flex items-center gap-3 px-1">
+                        <div className="flex-1 h-px bg-amber-500/20" />
+                        <span className="text-[10px] text-amber-500/60 whitespace-nowrap">Round {currentRound} 新增意图</span>
+                        <div className="flex-1 h-px bg-amber-500/20" />
+                      </div>
+                    )}
+                  </>
+                )}
+                {/* Current-round (or all) intents */}
+                {thisRoundIntents.map(intent => {
+                  const p = intent.participant;
+                  const r = p ? ROLES[p.role as RoleId] : null;
+                  const isNew = newIntentIds.includes(intent.id);
+                  return (
+                    <div
+                      key={intent.id}
+                      className="flex gap-3 rounded-2xl border p-3 transition-colors"
+                      style={
+                        isNew
+                          ? { borderColor: 'rgba(16,185,129,0.32)', backgroundColor: 'rgba(16,185,129,0.08)' }
+                          : { borderColor: 'rgba(255,255,255,0.05)', backgroundColor: 'rgba(255,255,255,0.02)' }
+                      }
+                    >
+                      <div
+                        className="w-0.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: r?.color || '#444' }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium" style={{ color: r?.color || '#888' }}>
+                            {p?.name || '匿名'}
+                          </span>
+                          <span className="text-xs text-gray-600">{r?.label}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-400 border border-white/5">
+                            {normalizeSectionName(intent.section)}
+                          </span>
+                          {isNew && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">
+                              NEW
+                            </span>
+                          )}
+                          <span className="text-xs text-gray-700 ml-auto">
+                            {new Date(intent.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-300 leading-relaxed">{intent.content}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Empty state for this round when previous round intents exist */}
+                {lastSynthesisAt && thisRoundIntents.length === 0 && (
+                  <div className="text-center text-gray-700 text-xs mt-4 py-4">
+                    在上方提交新的意图，或点击「补全角色」填充示例
                   </div>
-                );
-              })
+                )}
+              </>
             )}
             <div ref={intentsEndRef} />
           </div>
@@ -792,7 +884,7 @@ export default function RoomPage() {
                 <div>
                   <div className="w-8 h-8 border-2 border-white/10 border-t-white/60 rounded-full animate-spin mx-auto mb-4" />
                   <p className="text-gray-300 text-sm">AI 正在合成当前共识</p>
-                  <p className="text-xs text-gray-600 mt-1">通常需要 30–90 秒</p>
+                  <p className="text-xs text-gray-600 mt-1">通常需要 20–40 秒</p>
                 </div>
               ) : intents.length > 0 ? (
                 <div>
