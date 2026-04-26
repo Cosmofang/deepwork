@@ -2,6 +2,74 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第四十五轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+代码树干净，Cycle 44 已提交。本轮针对 work-log P1 优先级：action capability input schema。当前 `DEEPWORK_ACTION_CAPABILITIES` 只告诉 agent「应该调用哪个 endpoint」，但没有提供可直接 copy-paste 的请求 body。导致 agent 读取 snapshot 后仍需要查阅文档才能构造合法的 writer 请求。
+
+### 本轮完成的改动
+
+#### ✅ `DeepWorkActionCapability` 增加 `examplePayloads` 字段
+
+**文件**：`src/types/deepwork-protocol.ts`
+
+新增接口：
+
+```ts
+export interface DeepWorkActionCapabilityExample {
+  eventType?: DeepWorkEventType;
+  description: string;
+  // Full HTTP request body to POST to writeEndpoint. Replace ROOM_ID with the actual roomId.
+  body: Record<string, unknown>;
+}
+```
+
+`DeepWorkActionCapability` 增加可选字段：
+
+```ts
+examplePayloads?: DeepWorkActionCapabilityExample[];
+```
+
+#### ✅ `write_event` capability 增加 6 条具体示例
+
+涵盖所有主要治理场景：
+
+| eventType | 用途 |
+|-----------|------|
+| `conflict.detected` | 记录两个 actor 在某 section 上的冲突 |
+| `decision.accepted` | 关闭冲突（decisionId = unresolvedConflicts[].id） |
+| `intent.created` | agent 贡献额外意图 |
+| `patch.proposed` | agent 提议内容变更 |
+| `artifact.updated` | 记录产物文件已更新 |
+| `summary.updated` | 更新某 section 摘要 |
+
+每条示例包含完整的可粘贴 HTTP body（用 `ROOM_ID` 作占位符）和说明字段如何与 snapshot 联动（如 `decisionId` 如何对应 `snapshot.unresolvedConflicts[].id`）。
+
+#### ✅ `review_patch` capability 增加 2 条具体示例
+
+涵盖人工审核 patch 的两种关闭路径：`patch.applied`（记录产物变更）和 `decision.accepted`（记录治理决定）。
+
+#### ✅ `docs/demo-quickstart.md` Section 7 增加 7a 节
+
+新增「从 actionCapabilities 提取示例 payload」说明：agent 可以通过 `GET /api/workspace` → `actionCapabilities[].examplePayloads` 直接获取合法请求 body，无需查阅文档。增加了对应 jq 命令。第 5 步新增确认 `unresolvedConflicts` 已清空的验证命令。
+
+### 效果
+
+`GET /api/workspace?roomId=X` 返回的 `actionCapabilities` 现在是**自说明**的：agent 可以从 snapshot 中读取推荐动作 → 找到对应 capability → 复制 examplePayload.body → 替换 ROOM_ID → 直接 POST。整个治理循环不再需要跳出协议读外部文档。
+
+### 验证状态
+
+`npm run build` 通过，12 条路由，无 TypeScript 错误。
+
+### 下一步建议
+
+1. **P0 — 真实端到端演练**（4/29 前）：配置 `.env.local`，按 `docs/demo-quickstart.md` 运行完整路径，测试 Section 7 的 5 步 curl 闭环。
+2. **P0 — synthesis 双 syncRoomStateToWorkspace 合并**：synthesize 路由在合成完成后仍有 2 次连续 `syncRoomStateToWorkspace` 调用（10 次 Supabase 查询）；可合并为 1 次。影响小于 populate fix（合成本身已花 30-90s），但值得清理。
+3. **P1 — 归因 hover tooltip 增加意图预览**：当前悬停提示只显示「X 贡献了这个区块」；可以用该角色在此 section 的某条意图文本作为子标题，让归因与原始意图之间的连线更直观。
+
+---
+
 ## 第四十四轮分析 — 2026/04/26
 
 ### 本轮扫描结论

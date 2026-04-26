@@ -170,12 +170,21 @@ export interface DeepWorkRecommendedAction {
   governancePolicy?: DeepWorkGovernancePolicy;
 }
 
+export interface DeepWorkActionCapabilityExample {
+  eventType?: DeepWorkEventType;
+  description: string;
+  // Full HTTP request body to POST to writeEndpoint. Replace ROOM_ID with the actual roomId.
+  body: Record<string, unknown>;
+}
+
 export interface DeepWorkActionCapability {
   suggestedAction: DeepWorkRecommendedActionSuggestion;
   description: string;
   writeEndpoint?: string;
   requiredEventTypes?: DeepWorkEventType[];
   requiresHumanReview?: boolean;
+  // Concrete copy-paste examples an agent can use to construct a valid request.
+  examplePayloads?: DeepWorkActionCapabilityExample[];
 }
 
 export interface DeepWorkSnapshot {
@@ -234,6 +243,89 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
     suggestedAction: 'write_event',
     description: 'Append a validated semantic event through the workspace event writer.',
     writeEndpoint: 'POST /api/workspace/events',
+    examplePayloads: [
+      {
+        eventType: 'conflict.detected',
+        description: 'Record a conflict between two actors on a section. Use snapshot.unresolvedConflicts[].id as conflictId when closing.',
+        body: {
+          roomId: 'ROOM_ID',
+          event: {
+            type: 'conflict.detected',
+            summary: 'Designer and copywriter have conflicting intents on hero headline',
+            sections: ['hero'],
+            actorIds: [],
+          },
+        },
+      },
+      {
+        eventType: 'decision.accepted',
+        description: 'Resolve a conflict or formally accept a decision. Set decisionId to the conflictId from snapshot.unresolvedConflicts[].id to close it.',
+        body: {
+          roomId: 'ROOM_ID',
+          event: {
+            type: 'decision.accepted',
+            summary: 'Hero headline conflict resolved: adopt copywriter version',
+            decisionId: '<conflict-id-from-snapshot.unresolvedConflicts[].id>',
+            title: 'Hero headline decision',
+            value: 'Use copywriter headline; designer adjusts visual hierarchy to match',
+          },
+        },
+      },
+      {
+        eventType: 'intent.created',
+        description: 'Agent contributes an additional intent to a section.',
+        body: {
+          roomId: 'ROOM_ID',
+          event: {
+            type: 'intent.created',
+            summary: 'Agent proposes adding a live demo embed to the hero section',
+            section: 'hero',
+            content: 'Hero should include an interactive embed showing a live DeepWork session so visitors understand the product without reading.',
+            actorId: 'agent-machine-b',
+          },
+        },
+      },
+      {
+        eventType: 'patch.proposed',
+        description: 'Agent proposes a content or code change. At least one of affectedSections, affectedFiles, linkedEventIds, or linkedIntents is required.',
+        body: {
+          roomId: 'ROOM_ID',
+          event: {
+            type: 'patch.proposed',
+            summary: 'Agent proposes rewording the primary CTA button',
+            affectedSections: ['cta'],
+            linkedIntents: ['<intent-id-from-snapshot.recentIntents[].id>'],
+            reason: 'Aligns with copywriter intent: "Start your free trial" converts better than "Sign up"',
+            actorId: 'agent-machine-b',
+          },
+        },
+      },
+      {
+        eventType: 'artifact.updated',
+        description: 'Record that an artifact file was updated.',
+        body: {
+          roomId: 'ROOM_ID',
+          event: {
+            type: 'artifact.updated',
+            summary: 'Hero section HTML updated after applying copywriter patch',
+            artifactType: 'html',
+            artifactPath: '.deepwork/rooms/ROOM_ID/latest.html',
+          },
+        },
+      },
+      {
+        eventType: 'summary.updated',
+        description: 'Record that a section summary was revised.',
+        body: {
+          roomId: 'ROOM_ID',
+          event: {
+            type: 'summary.updated',
+            summary: 'Hero section summary updated to reflect latest synthesis output',
+            section: 'hero',
+          },
+        },
+      },
+    ],
   },
   {
     suggestedAction: 'run_synthesis',
@@ -252,6 +344,36 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
     writeEndpoint: 'POST /api/workspace/events',
     requiredEventTypes: ['patch.applied', 'decision.accepted'],
     requiresHumanReview: true,
+    examplePayloads: [
+      {
+        eventType: 'patch.applied',
+        description: 'Mark a proposed patch as applied after human review. Use patchId from snapshot.proposedPatches[].id.',
+        body: {
+          roomId: 'ROOM_ID',
+          event: {
+            type: 'patch.applied',
+            summary: 'CTA button copy patch applied after human review',
+            status: 'applied',
+            affectedSections: ['cta'],
+            patchId: '<patch-event-id-from-snapshot.proposedPatches[].id>',
+          },
+        },
+      },
+      {
+        eventType: 'decision.accepted',
+        description: 'Formally accept the decision implied by a patch without recording a file-level change.',
+        body: {
+          roomId: 'ROOM_ID',
+          event: {
+            type: 'decision.accepted',
+            summary: 'Patch accepted: CTA copy changed to "Start your free trial"',
+            decisionId: '<patch-event-id-from-snapshot.proposedPatches[].id>',
+            title: 'CTA copy change approved',
+            value: 'Apply the proposed CTA copy change as specified in the patch',
+          },
+        },
+      },
+    ],
   },
 ];
 

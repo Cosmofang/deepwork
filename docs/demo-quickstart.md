@@ -126,30 +126,50 @@ npm run build
 
 完整协议测试步骤见 [`docs/protocol-dual-machine-test.md`](protocol-dual-machine-test.md)。
 
-最小验证路径：
+### 7a. 从 actionCapabilities 提取示例 payload（无需读文档）
+
+`GET /api/workspace` 的响应中包含 `actionCapabilities`，其中每个 capability 带有 `examplePayloads`，让 agent 直接构造合法请求：
 
 ```bash
 BASE="http://localhost:3000"
 ROOM="YOUR_ROOM_ID"
 
-# 读取协议快照
-curl -s "$BASE/api/workspace?roomId=$ROOM" | jq '.snapshot.recommendedNextActions[0], .actionCapabilities'
+# 查看 write_event 的所有示例 payload
+curl -s "$BASE/api/workspace?roomId=$ROOM" \
+  | jq '.actionCapabilities[] | select(.suggestedAction=="write_event") | .examplePayloads[] | {eventType, description}'
 
-# 写入 conflict.detected
+# 获取 conflict.detected 的完整示例 body
+curl -s "$BASE/api/workspace?roomId=$ROOM" \
+  | jq '.actionCapabilities[] | select(.suggestedAction=="write_event") | .examplePayloads[] | select(.eventType=="conflict.detected") | .body'
+```
+
+### 7b. 最小治理闭环验证
+
+```bash
+BASE="http://localhost:3000"
+ROOM="YOUR_ROOM_ID"
+
+# 1. 读取协议快照，查看推荐动作与 actionCapabilities
+curl -s "$BASE/api/workspace?roomId=$ROOM" | jq '.snapshot.recommendedNextActions[0], .actionCapabilities[0].suggestedAction'
+
+# 2. 写入 conflict.detected
 curl -s -X POST "$BASE/api/workspace/events" \
   -H "Content-Type: application/json" \
   -d '{"roomId":"'$ROOM'","event":{"type":"conflict.detected","summary":"设计师和文案在首屏文案上有冲突","sections":["hero"],"actorIds":[]}}'
 
-# 再次读取，确认 P0 action 出现，并复制 unresolved conflict 的 id
+# 3. 确认 P0 action 出现，复制 conflict id
 CONFLICT_ID=$(curl -s "$BASE/api/workspace?roomId=$ROOM" | jq -r '.snapshot.unresolvedConflicts[0].id')
 curl -s "$BASE/api/workspace?roomId=$ROOM" | jq '.snapshot.unresolvedConflicts, .snapshot.recommendedNextActions[] | select(.priority=="p0")'
 
-# 写入 decision.accepted 关闭冲突
+# 4. 写入 decision.accepted 关闭冲突（decisionId 对应上面的 conflict id）
 curl -s -X POST "$BASE/api/workspace/events" \
   -H "Content-Type: application/json" \
   -d '{"roomId":"'$ROOM'","event":{"type":"decision.accepted","summary":"首屏文案冲突解决","decisionId":"'$CONFLICT_ID'","title":"首屏文案冲突解决","value":"采用文案版本，设计师调整排版"}}'
+
+# 5. 确认冲突已从 unresolvedConflicts 中消失
+curl -s "$BASE/api/workspace?roomId=$ROOM" | jq '.snapshot.unresolvedConflicts'
 ```
 
 ---
 
-*最后更新：Cycle 42 — 2026/04/26*
+*最后更新：Cycle 45 — 2026/04/26*
