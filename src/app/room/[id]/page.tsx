@@ -296,14 +296,14 @@ export default function RoomPage() {
     })();
   };
 
-  const populateDemo = async () => {
+  const populateDemo = async (round?: number) => {
     if (populating) return;
     setPopulating(true);
     setRequestError('');
     await fetch('/api/demo/populate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roomId: id }),
+      body: JSON.stringify({ roomId: id, ...(round && round > 1 ? { round } : {}) }),
     }).catch(() => null);
     setPopulating(false);
   };
@@ -640,7 +640,7 @@ export default function RoomPage() {
               )}
               {participants.length < 6 && intents.length > 0 && (
                 <button
-                  onClick={populateDemo}
+                  onClick={() => populateDemo()}
                   disabled={populating}
                   className="px-3 py-1.5 rounded-full text-xs border border-dashed border-white/15 text-gray-600 hover:text-gray-400 hover:border-white/25 transition-colors disabled:opacity-30"
                   title="为缺席角色填充示例意图"
@@ -790,8 +790,20 @@ export default function RoomPage() {
                 })}
                 {/* Empty state for this round when previous round intents exist */}
                 {lastSynthesisAt && thisRoundIntents.length === 0 && (
-                  <div className="text-center text-gray-700 text-xs mt-4 py-4">
-                    在上方提交新的意图，或点击「补全角色」填充示例
+                  <div className="text-center mt-4 py-4 space-y-2">
+                    <p className="text-gray-700 text-xs">在上方提交新的意图，或一键填充第 {currentRound} 轮示例</p>
+                    <button
+                      onClick={() => populateDemo(currentRound)}
+                      disabled={populating}
+                      className="px-4 py-1.5 rounded-lg text-xs font-medium border border-dashed border-amber-500/30 text-amber-500/70 hover:text-amber-400 hover:border-amber-400/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {populating ? (
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-3 h-3 border border-amber-500/50 border-t-amber-400 rounded-full animate-spin" />
+                          填充中...
+                        </span>
+                      ) : `⚡ 填充第 ${currentRound} 轮示例`}
+                    </button>
                   </div>
                 )}
               </>
@@ -886,6 +898,23 @@ export default function RoomPage() {
                   <p className="text-gray-300 text-sm">AI 正在合成当前共识</p>
                   <p className="text-xs text-gray-600 mt-1">通常需要 20–40 秒</p>
                 </div>
+              ) : afterRound > 0 && thisRoundIntents.length === 0 ? (
+                <div>
+                  <p className="text-sm text-amber-400/80 mb-3">第 {currentRound} 轮暂无新意图</p>
+                  <button
+                    onClick={() => populateDemo(currentRound)}
+                    disabled={populating}
+                    className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-amber-500/30 text-amber-500/70 hover:text-amber-400 hover:border-amber-400/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {populating ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="w-3 h-3 border border-amber-500/50 border-t-amber-400 rounded-full animate-spin" />
+                        填充中...
+                      </span>
+                    ) : `⚡ 填充第 ${currentRound} 轮示例`}
+                  </button>
+                  <p className="text-[10px] text-gray-700 mt-2">为所有角色补充第 {currentRound} 轮意图</p>
+                </div>
               ) : intents.length > 0 ? (
                 <div>
                   <p className="text-sm text-gray-300">当前已经收集 {intents.length} 条协作输入</p>
@@ -895,7 +924,7 @@ export default function RoomPage() {
                 <div>
                   <p className="text-sm text-gray-500 mb-3">还没有意图</p>
                   <button
-                    onClick={populateDemo}
+                    onClick={() => populateDemo()}
                     disabled={populating}
                     className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-white/15 text-gray-500 hover:text-white hover:border-white/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >

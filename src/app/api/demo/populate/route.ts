@@ -6,12 +6,13 @@ import { RoleId } from '@/types';
 import { syncRoomStateToWorkspace, RoomStateEvent } from '@/lib/room-state';
 
 // POST /api/demo/populate
-// Creates synthetic participants for any roles not yet in the room,
-// then submits each one's pre-written demo intents. Idempotent — calling
-// it again skips roles that already have a participant.
+// Round 1 (default): creates synthetic participants for missing roles and fills demoIntents.
+// Round 2+ (round >= 2): fills demoIntents2 for all existing participants that don't yet
+// have the Round 2 content (content-based idempotency on the first demoIntents2 item).
 export async function POST(req: NextRequest) {
-  const body = await req.json() as { roomId?: string };
+  const body = await req.json() as { roomId?: string; round?: number };
   const roomId = body.roomId?.trim().toUpperCase();
+  const round = typeof body.round === 'number' ? body.round : 1;
 
   if (!roomId) {
     return NextResponse.json({ error: 'roomId required' }, { status: 400 });
@@ -55,6 +56,61 @@ export async function POST(req: NextRequest) {
 
   let totalIntents = 0;
   const workspaceEvents: RoomStateEvent[] = [];
+
+  // ── Round 2+ path: fill demoIntents2 for all existing participants ──────────
+  if (round >= 2 && existingParticipants.length > 0) {
+    // Content-based idempotency: fetch all existing intent contents per participant.
+    const { data: existingIntents } = await supabase
+      .from('intents')
+      .select('participant_id, content')
+      .eq('room_id', roomId);
+
+    const intentContentsByParticipant = new Map<string, Set<string>>();
+    for (const i of existingIntents ?? []) {
+      if (!intentContentsByParticipant.has(i.participant_id as string)) {
+        intentContentsByParticipant.set(i.participant_id as string, new Set());
+      }
+      intentContentsByParticipant.get(i.participant_id as string)!.add(i.content as string);
+    }
+
+    for (const p of existingParticipants) {
+      const roleInfo = ROLES[p.role as RoleId];
+      if (!roleInfo?.demoIntents2?.length) continue;
+      const existingContents = intentContentsByParticipant.get(p.id) ?? new Set<string>();
+      // Skip if the first Round 2 intent already exists (already populated).
+      if (existingContents.has(roleInfo.demoIntents2[0].content)) continue;
+
+      for (const demo of roleInfo.demoIntents2) {
+        if (existingContents.has(demo.content)) continue;
+        const section = normalizeSectionName(demo.section);
+        await supabase
+          .from('room_sections')
+          .upsert({ room_id: roomId, name: section, created_by: p.id }, { onConflict: 'room_id,name' });
+        const { error: intentErr } = await supabase
+          .from('intents')
+          .insert({ room_id: roomId, participant_id: p.id, section, content: demo.content });
+        if (!intentErr) {
+          totalIntents++;
+          workspaceEvents.push({
+            type: 'intent_created',
+            participantId: p.id,
+            participantName: roleInfo.label,
+            role: p.role as RoleId,
+            section,
+            summary: demo.content,
+            content: demo.content,
+          });
+        }
+      }
+    }
+
+    if (workspaceEvents.length > 0) {
+      await syncRoomStateToWorkspace(roomId, workspaceEvents[workspaceEvents.length - 1], workspaceEvents.slice(0, -1));
+    }
+    return NextResponse.json({ added: 0, intents: totalIntents, round });
+  }
+
+  // ── Round 1 path (default) ───────────────────────────────────────────────────
 
   // For existing participants with 0 submitted intents, fill their demo intents too.
   // This lets a solo presenter click "一键填充" and get full 6-role attribution.
