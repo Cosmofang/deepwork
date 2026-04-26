@@ -2,6 +2,94 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第六十一轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 60 的 CSS 注入让迭代合成的视觉连续性得到了服务端保障。下一个最高价值改动是 P1——**结果页归因变化摘要**：对比相邻两轮的 `attributionMap`，直接标出哪些板块换了主贡献角色。
+
+**演示痛点**：演示时主持人说"看，Round 2 在 Round 1 基础上迭代了"，但结果页没有任何视觉信号表明"什么变了"。两个圆形页面并排展示时，观众只能靠内容文字来感知变化，缺乏结构层面的 delta 视图。
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — 归因变化摘要
+
+**新增数据类型**：
+```ts
+interface AttributionChange {
+  section: string;
+  from: string | null;  // null = 新增板块
+  to: string;           // roleId
+}
+```
+
+**纯客户端 diff 计算**（零额外 DB 查询）：
+```ts
+function computeAttributionDiff(
+  prev: Record<string, string>,
+  curr: Record<string, string>
+): AttributionChange[] {
+  return Object.entries(curr)
+    .filter(([section, role]) => prev[section] !== role)
+    .map(([section, role]) => ({ section, from: prev[section] ?? null, to: role }));
+}
+
+// In render:
+const attributionDiffs = new Map<number, AttributionChange[]>();
+allResults.forEach((r, i) => {
+  if (i === 0) return;
+  attributionDiffs.set(r.round, computeAttributionDiff(allResults[i-1].attribution_map, r.attribution_map));
+});
+```
+
+**迭代历史按钮新增变化计数角标**：
+
+R2 按钮变为：`R2 [3 变] 14:27 ●`
+
+- 琥珀色 `N 变` 角标仅在有归因变化时出现
+- 第一轮（R1）无前置比较，不显示角标
+
+**归因面板新增「本轮变化」区块**：
+
+仅在 `round > 1` 且当前轮有 diff 时展示：
+```
+本轮变化
+────────────────────
+首屏 Hero
+  designer → copywriter
+
+价值主张
+  新增 → product
+
+社交证明
+  marketing → marketing (无变化，不出现)
+```
+
+显示样式：板块名（灰色小字）+ from 角色颜色文字 + 箭头 `→` + to 角色颜色加粗文字。新增板块（`from === null`）显示「新增」灰色标签。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`result/page.tsx` bundle 增加 ~350 bytes（diff 组件），在预期范围内。
+
+### 完整演示叙事（现在可以讲）
+
+1. **Round 1 合成完毕** → 结果页展示归因摘要（谁贡献了哪个板块）
+2. **继续迭代 → 填充第 2 轮示例 → 合成**
+3. **Round 2 结果页**：
+   - 迭代历史面板出现 `R1` / `R2 [3 变]` 两个按钮
+   - 点击 R2 → 归因面板展示「本轮变化」：3 个板块换了主贡献角色
+   - 主持人说："设计师把 Hero 还给了文案，产品接管了定价，这就是迭代带来的权责变化"
+4. **点击 R1 按钮** → 归因面板切回第 1 轮视图，无「本轮变化」区块
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（Round 1 → Round 2），验证 CSS 令牌继承 + 归因变化摘要效果
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：考虑在迭代历史面板中增加 R1/R2 的「板块覆盖度」统计（每轮合成了几个板块），目前结果页只能推断出归因变化，不能直接看到各轮板块数量
+- **P1**：归因面板「本轮变化」区块可扩展为支持展开查看被替换板块的完整意图内容（点击展开）
+
+---
+
 ## 第六十轮分析 — 2026/04/27
 
 ### 本轮扫描结论

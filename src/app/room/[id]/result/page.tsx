@@ -80,6 +80,25 @@ function injectAttribution(
   return html + script;
 }
 
+interface AttributionChange {
+  section: string;
+  from: string | null;
+  to: string;
+}
+
+function computeAttributionDiff(
+  prev: Record<string, string>,
+  curr: Record<string, string>
+): AttributionChange[] {
+  const changes: AttributionChange[] = [];
+  for (const [section, role] of Object.entries(curr)) {
+    if (prev[section] !== role) {
+      changes.push({ section, from: prev[section] ?? null, to: role });
+    }
+  }
+  return changes;
+}
+
 function downloadHtml(html: string, round: number, roomId: string) {
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
@@ -222,6 +241,16 @@ export default function ResultPage() {
 
   const latestRound = allResults[allResults.length - 1]?.round ?? 1;
 
+  // Compute attribution diffs between consecutive rounds (pure client-side, no extra queries).
+  const attributionDiffs = new Map<number, AttributionChange[]>();
+  allResults.forEach((r, i) => {
+    if (i === 0) return;
+    const prev = allResults[i - 1];
+    if (prev.attribution_map && r.attribution_map) {
+      attributionDiffs.set(r.round, computeAttributionDiff(prev.attribution_map, r.attribution_map));
+    }
+  });
+
   return (
     <div className="h-screen bg-[#0a0a0a] flex flex-col">
       {/* Header */}
@@ -282,26 +311,36 @@ export default function ResultPage() {
             <div className="p-4 border-b border-white/10">
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">迭代历史</p>
               <div className="space-y-1.5">
-                {allResults.map(r => (
-                  <button
-                    key={r.id}
-                    onClick={() => setActiveRound(r.round)}
-                    className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors"
-                    style={
-                      activeRound === r.round
-                        ? { backgroundColor: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }
-                        : { border: '1px solid transparent' }
-                    }
-                  >
-                    <span className="text-xs font-mono text-gray-400">R{r.round}</span>
-                    <span className="text-xs text-gray-600 flex-1 text-right">
-                      {new Date(r.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    {r.round === latestRound && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
-                    )}
-                  </button>
-                ))}
+                {allResults.map(r => {
+                  const diff = attributionDiffs.get(r.round);
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => setActiveRound(r.round)}
+                      className="w-full flex flex-col rounded-lg px-3 py-2 text-left transition-colors"
+                      style={
+                        activeRound === r.round
+                          ? { backgroundColor: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }
+                          : { border: '1px solid transparent' }
+                      }
+                    >
+                      <div className="flex items-center gap-2 w-full">
+                        <span className="text-xs font-mono text-gray-400">R{r.round}</span>
+                        {diff && diff.length > 0 && (
+                          <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400/80 font-medium">
+                            {diff.length} 变
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-600 flex-1 text-right">
+                          {new Date(r.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        {r.round === latestRound && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -361,6 +400,36 @@ export default function ResultPage() {
                 </div>
               );
             })}
+
+            {/* Attribution diff: show what changed vs the previous round */}
+            {activeResult.round > 1 && attributionDiffs.has(activeResult.round) && (
+              <div className="mt-5 pt-4 border-t border-white/10">
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">本轮变化</p>
+                {attributionDiffs.get(activeResult.round)!.length === 0 ? (
+                  <p className="text-xs text-gray-600">归因无变化</p>
+                ) : (
+                  attributionDiffs.get(activeResult.round)!.map(d => {
+                    const fromRole = d.from ? ROLES[d.from as RoleId] : null;
+                    const toRole = ROLES[d.to as RoleId];
+                    if (!toRole) return null;
+                    return (
+                      <div key={d.section} className="mb-3">
+                        <p className="text-[10px] text-gray-600 mb-1 leading-snug">{d.section}</p>
+                        <div className="flex items-center gap-1.5">
+                          {fromRole ? (
+                            <span className="text-[10px] font-medium" style={{ color: fromRole.color }}>{fromRole.label}</span>
+                          ) : (
+                            <span className="text-[10px] text-gray-700">新增</span>
+                          )}
+                          <span className="text-gray-700 text-[10px]">→</span>
+                          <span className="text-[10px] font-semibold" style={{ color: toRole.color }}>{toRole.label}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
 
             {activeResult.conflicts_resolved && activeResult.conflicts_resolved.length > 0 && (
               <div className="mt-5 pt-4 border-t border-white/10">
