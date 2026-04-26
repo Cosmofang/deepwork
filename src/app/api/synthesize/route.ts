@@ -45,6 +45,14 @@ export async function POST(req: NextRequest) {
 
   const supabase = createClient();
 
+  const recordSynthesisFailure = async (summary: string) => {
+    await syncRoomStateToWorkspace(normalizedRoomId, {
+      type: 'summary.updated',
+      section: '合成流程',
+      summary,
+    }).catch(() => null);
+  };
+
   const { data: lockedRoom, error: lockError } = await supabase
     .from('rooms')
     .update({ status: 'synthesizing' })
@@ -195,6 +203,7 @@ ${intentLines}
     }
 
     if (!output) {
+      await recordSynthesisFailure('合成失败：Claude 返回内容无法解析为有效 JSON，房间已回到 collecting 状态。');
       await supabase.from('rooms').update({ status: 'collecting' }).eq('id', normalizedRoomId);
       return NextResponse.json({ error: 'Invalid response from Claude' }, { status: 500 });
     }
@@ -255,7 +264,10 @@ ${intentLines}
     );
 
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (err) {
+    await recordSynthesisFailure(
+      `合成失败：${err instanceof Error ? err.message.slice(0, 200) : '未知错误'}，房间已回到 collecting 状态。`
+    );
     await supabase.from('rooms').update({ status: 'collecting' }).eq('id', normalizedRoomId);
     return NextResponse.json({ error: 'Synthesis failed' }, { status: 500 });
   }

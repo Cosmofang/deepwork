@@ -2,6 +2,95 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第五十二轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮接续第五十一轮，重点检查 `src/app/api/synthesize/route.ts`。发现 `recordSynthesisFailure` helper（第四十八轮已添加）只在 JSON 解析失败路径被调用，未覆盖主 `catch` 块。合成超时（90s AbortError）是实际 demo 中最常见的失败形态，发生后 `events.ndjson` 中的 `synthesis.started` 孤立，snapshot 中 `synthesis.started` 无对应 `synthesis.completed`，外部 agent 读取时无法判断合成是完成还是卡住。
+
+### 本轮完成的改动
+
+#### ✅ `catch` 块调用 `recordSynthesisFailure`
+
+**文件**：`src/app/api/synthesize/route.ts`
+
+将主 `catch` 块从仅重置房间状态，改为先写入 `summary.updated` 事件再重置：
+
+```typescript
+// Before
+} catch {
+  await supabase.from('rooms').update({ status: 'collecting' }).eq('id', normalizedRoomId);
+  return NextResponse.json({ error: 'Synthesis failed' }, { status: 500 });
+}
+
+// After
+} catch (err) {
+  await recordSynthesisFailure(
+    `合成失败：${err instanceof Error ? err.message.slice(0, 200) : '未知错误'}，房间已回到 collecting 状态。`
+  );
+  await supabase.from('rooms').update({ status: 'collecting' }).eq('id', normalizedRoomId);
+  return NextResponse.json({ error: 'Synthesis failed' }, { status: 500 });
+}
+```
+
+### 为什么这是方向正确的改动
+
+`recordSynthesisFailure` 通过 `syncRoomStateToWorkspace` 写入 `summary.updated` 事件到 `events.ndjson`，让快照 reader 可区分「合成进行中」与「合成失败已恢复」。AbortError 消息（超时 90s）现在会出现在 summary 字符串中，帮助 agent 判断是否需要重新触发合成。
+
+### 验证状态
+
+`npm run build` 通过，12 条路由，无 TypeScript 错误。
+
+### 下一步建议
+
+1. **P0 — 使用真实 `.env.local` 跑完整 demo 路径**：按 `docs/demo-quickstart.md` 核对清单，确认合成成功率与归因显示。
+2. **P0 — 执行 Section 7b governance curl 测试**：`conflict.detected → P0 action → decision.accepted → 冲突消失`。
+3. **P1 — 统一文档入口**：把三份协议文档整理成 agent 读取顺序。
+
+---
+
+## 第五十一轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮接续第五十轮，重点检查 `README.md`、`package.json`、`docs/protocol-readiness-checkpoint.md`、`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md`、`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/route.ts`、`src/app/api/workspace/events/route.ts` 和 `src/app/api/synthesize/route.ts`。当前 DeepWork 的主线已经非常清楚：landing-page 协作只是 wedge，真正产品是在构建 agent-era shared project state、intent protocol、semantic event stream、governancePolicy、closeWith 和 actionCapabilities。
+
+本轮发现一个低风险但重要的 agent 可执行性问题：第五十轮已经让 `patch.applied.patchId` 成为合法关闭别名，但 `review_patch` capability 示例如果只强调单一字段，continuation agent 仍可能无法判断应该跟随 `closeWith.field` 还是使用 patch identity alias。对于跨机器 Claude/OpenClaw workflow，示例 payload 必须尽量复制即可用，并且与 reader closure semantics、recommended action close hint 保持一致。
+
+### 本轮完成的改动
+
+#### ✅ `review_patch` 示例同时携带 `patchId` 与 `linkedEventIds`
+
+**文件**：`src/types/deepwork-protocol.ts`
+
+- 将 `review_patch` capability 的 `patch.applied` 示例更新为同时包含 `patchId` 和 `linkedEventIds`
+- 两个字段使用同一个占位值：`<patch-event-id-or-patchId-from-closeWith.acceptedValues>`
+- 这样既匹配 `recommendedNextActions.closeWith.field === 'linkedEventIds'`，也保留第五十轮新增的 `patchId` 语义别名
+- 示例补充 `actorId: 'agent-machine-b'`，让双机器测试中的外部 agent 写入更容易被归因
+
+#### ✅ checkpoint 记录示例的冗余设计意图
+
+**文件**：`docs/protocol-readiness-checkpoint.md`
+
+- 更新 action capability examples 小节，说明当前 patch-applied 示例故意同时带 `patchId` 与 `linkedEventIds`
+- 记录理由：`linkedEventIds` 跟随 closeWith advertised field，`patchId` 给偏好语义 patch identity 的 agent 一个直接别名
+
+### 为什么这是方向正确的改动
+
+DeepWork 的协议层不是只给人读的文档，而是给 agent 直接执行下一步的共享操作面。`closeWith` 告诉 agent 用哪个字段关闭治理事项，`actionCapabilities.examplePayloads` 则提供可复制请求。如果两者风格不一致，agent 会更依赖猜测。本轮让示例 payload 同时覆盖结构化 close hint 和语义 alias，降低跨 agent 实现差异带来的不收敛风险。
+
+### 验证状态
+
+已静态复核相关字段：`src/lib/room-state.ts` 的关闭判断同时接受 `patchId` 与 `linkedEventIds`；`src/app/api/workspace/events/route.ts` 的 patch linkage 校验也接受 `patchId`；因此本轮示例 payload 与 reader/writer 语义一致。本轮未完成 `npm run build`，仍不能宣称构建通过。
+
+### 下一步建议
+
+1. **P0 — 运行 `./node_modules/.bin/tsc --noEmit` 或 `npm run build`**：验证第五十/五十一轮协议字段和示例常量整体可编译。
+2. **P0 — 执行最小 patch governance 闭环**：`patch.proposed(patchId=A)` → GET workspace → 用 capability 示例写 `patch.applied(patchId=A, linkedEventIds=[A])` → GET 确认 proposed patch 消失。
+3. **P1 — 统一文档入口**：把 `protocol-event-contract.md`、`protocol-dual-machine-test.md`、`protocol-readiness-checkpoint.md` 整理成一个 agent 读取顺序，降低后续自动分析重复扫描成本。
+
+---
+
 ## 第五十轮分析 — 2026/04/26
 
 ### 本轮扫描结论

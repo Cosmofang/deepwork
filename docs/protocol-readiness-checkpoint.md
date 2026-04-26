@@ -46,6 +46,12 @@ DeepWork 已经不只是一个落地页协作 Demo。当前代码里已经出现
 
 目前协议主要存在于 TypeScript 类型和 API 注释里，没有一个稳定的人类/代理都能看的文档入口。对于「双机器 Claude/OpenClaw workflow」来说，另一个代理应该能先读一个短文档就知道：读取顺序是什么、哪些事件能写、哪些动作需要人类治理、如何关闭 proposed patch/conflict。
 
+### Action capability examples need to match closure semantics
+
+`DeepWorkActionCapabilities` now exposes example payloads for `review_patch`. The patch-applied example should stay aligned with the actual reader closure rule: a `patch.applied` event may include the proposed patch identity in `patchId`, `linkedEventIds`, or both. This matters because continuation agents often copy examples more reliably than prose; if the example writes a field the reader does not treat as a closure identity, the shared snapshot keeps reporting the proposed patch as open.
+
+The current example includes both `patchId` and `linkedEventIds` from `recommendedNextActions[].closeWith.acceptedValues`. This is intentionally redundant: `linkedEventIds` follows the advertised `closeWith.field`, while `patchId` gives a direct semantic alias for agents that treat patch governance like conflict governance.
+
 ### Git 状态需要清理确认
 
 项目目录是 git 仓库，但当前自动检查尚未做完整 diff 审计。下次运行应把 `git status --short` 和关键 diff 纳入例行检查，避免把历史未提交变更误判为本轮变更。

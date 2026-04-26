@@ -69,7 +69,7 @@ Success condition: Machine B identifies the new positioning requirement and link
 
 ## Step 4: Machine B Records A Semantic Patch
 
-Machine B should propose a small patch, ideally a documentation or copy change, and record it as `patch.proposed` before or alongside applying it. The semantic record should include `summary`, `reason`, `linkedIntents` if an intent ID is available, `affectedSections`, `affectedFiles`, and `status`. If Machine B can provide a deterministic semantic identifier, it may also include `patchId`. If the patch is later applied or accepted, the closing event should link back to either the proposal's generated event `id` or its `patchId` through `linkedEventIds` or `decisionId` so another machine can tell the proposal is no longer open.
+Machine B should propose a small patch, ideally a documentation or copy change, and record it as `patch.proposed` before or alongside applying it. The semantic record should include `summary`, `reason`, `linkedIntents` if an intent ID is available, `affectedSections`, `affectedFiles`, and `status`. If Machine B can provide a deterministic semantic identifier, it may also include `patchId`. If the patch is later applied or accepted, the closing event should link back to either the proposal's generated event `id` or its `patchId` through `patchId`, `linkedEventIds`, or `decisionId` so another machine can tell the proposal is no longer open.
 
 Current code provides a first-class writer path: `POST /api/workspace/events`. Use it for non-destructive semantic records from external agents. Example request:
 
@@ -89,7 +89,7 @@ Current code provides a first-class writer path: `POST /api/workspace/events`. U
 }
 ```
 
-The endpoint validates the event type and required semantic fields, appends the event to `events.ndjson`, refreshes `project.json` / `rooms/index.json` metadata, and returns the recorded event. Patch events must include a non-empty `summary` plus at least one of `linkedEventIds`, `linkedIntents`, `affectedSections`, or `affectedFiles`; this prevents agents from writing vague patch records that cannot guide another machine. The important product behavior is that the patch meaning becomes a structured event, not only a Git diff or chat message.
+The endpoint validates the event type and required semantic fields, appends the event to `events.ndjson`, refreshes `project.json` / `rooms/index.json` metadata, and returns the recorded event. Patch events must include a non-empty `summary` plus at least one of `patchId`, `linkedEventIds`, `linkedIntents`, `affectedSections`, or `affectedFiles`; this prevents agents from writing vague patch records that cannot guide another machine. The important product behavior is that the patch meaning becomes a structured event, not only a Git diff or chat message.
 
 After applying or accepting the proposed change, Machine B should record a closing event such as:
 
@@ -100,6 +100,7 @@ After applying or accepting the proposed change, Machine B should record a closi
     "type": "patch.applied",
     "summary": "Applied homepage positioning copy patch.",
     "reason": "The proposal was reviewed and implemented in the shared project files.",
+    "patchId": "<PATCH_PROPOSED_EVENT_ID_OR_PATCH_ID>",
     "linkedEventIds": ["<PATCH_PROPOSED_EVENT_ID_OR_PATCH_ID>"],
     "affectedFiles": ["src/app/page.tsx", "README.md"],
     "status": "applied"

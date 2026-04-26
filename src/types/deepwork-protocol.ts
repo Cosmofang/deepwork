@@ -348,7 +348,7 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
     examplePayloads: [
       {
         eventType: 'patch.applied',
-        description: 'Mark a proposed patch as applied after human review. Use a value from recommendedNextActions[].closeWith.acceptedValues or snapshot.proposedPatches[].id in linkedEventIds so the proposal closes.',
+        description: 'Mark a proposed patch as applied after human review. Use a value from recommendedNextActions[].closeWith.acceptedValues or snapshot.proposedPatches[].id in patchId and/or linkedEventIds so the proposal closes.',
         body: {
           roomId: 'ROOM_ID',
           event: {
@@ -356,6 +356,7 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
             summary: 'CTA button copy patch applied after human review',
             status: 'applied',
             affectedSections: ['cta'],
+            patchId: '<patch-event-id-or-patchId-from-closeWith.acceptedValues>',
             linkedEventIds: ['<patch-event-id-or-patchId-from-closeWith.acceptedValues>'],
             actorId: 'agent-machine-b',
           },

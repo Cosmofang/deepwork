@@ -74,7 +74,7 @@ Use this before or alongside a code, content, schema, or documentation change th
 
 Patch events must include at least one of `patchId`, `linkedEventIds`, `linkedIntents`, `affectedSections`, or `affectedFiles`. This guard prevents vague agent messages from polluting the shared state. Use `linkedEventIds` to point to protocol events such as a prior `patch.proposed`; use `linkedIntents` only for intent IDs from room state or `intent.created` events. `patchId` is an optional stable alias for the patch proposal or closure target.
 
-A proposed patch stops being open when a later `patch.applied` or `decision.accepted` event links back to its event ID through `linkedEventIds` or `decisionId`. If the proposal carries a semantic `patchId`, that `patchId` is accepted as an alias for the generated event `id`; closing events may reference either value. This keeps `snapshot.proposedPatches` and the `review-proposed-patches` recommended action focused on still-unreviewed governance work instead of every patch ever proposed.
+A proposed patch stops being open when a later `patch.applied` or `decision.accepted` event links back to its event ID through `patchId`, `linkedEventIds`, or `decisionId`. If the proposal carries a semantic `patchId`, that `patchId` is accepted as an alias for the generated event `id`; closing events may reference either value. This keeps `snapshot.proposedPatches` and the `review-proposed-patches` recommended action focused on still-unreviewed governance work instead of every patch ever proposed.
 
 ### `patch.applied`
 
