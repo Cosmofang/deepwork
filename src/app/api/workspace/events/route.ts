@@ -300,7 +300,7 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
 // Body: { roomId: string; event: Partial<DeepWorkSemanticEvent> }
 // Returns: { ok: true; event: DeepWorkSemanticEvent }
 export async function POST(req: NextRequest) {
-  let body: { roomId?: string; event?: Partial<DeepWorkSemanticEvent> };
+  let body: { roomId?: string; event?: Partial<DeepWorkSemanticEvent> } & Record<string, unknown>;
 
   try {
     body = (await req.json()) as typeof body;
@@ -315,6 +315,19 @@ export async function POST(req: NextRequest) {
 
   const eventInput = body.event;
   if (!eventInput) {
+    const bodyKeys = Object.keys(body as Record<string, unknown>);
+    const topLevelEventFields = ['type', 'summary', 'content', 'section', 'sections', 'actorIds', 'conflictId', 'decisionId', 'value'];
+    const hasTopLevelEventFields = topLevelEventFields.some(k => bodyKeys.includes(k));
+    if (hasTopLevelEventFields) {
+      return NextResponse.json(
+        {
+          error: 'event fields must be wrapped under an "event" key',
+          hint: 'Send { "roomId": "...", "event": { "type": "...", "summary": "...", ... } } — not flat at the top level.',
+          example: { roomId: 'YOURROOM', event: { type: 'conflict.detected', summary: 'describe conflict', sections: [], actorIds: [] } },
+        },
+        { status: 400 }
+      );
+    }
     return NextResponse.json({ error: 'event is required' }, { status: 400 });
   }
 

@@ -2,6 +2,48 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第四十轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+复查 git status：Cycle 39 的 docs/demo-quickstart.md 与 work-log.md 已有修改，已先提交 Cycle 39，再执行本轮改动。
+
+本轮识别最高价值改动：Cycle 39 P1 — 给 writer endpoint 增加兼容错误提示。当前 `POST /api/workspace/events` 若用户把 `type`/`summary`/`sections` 等字段直接放在 body 顶层（而非 `event` 对象内），返回的是通用 `event is required` 400 错误，agent 或人工测试者无法从错误信息中推断正确格式，只能靠翻源码或文档。
+
+### 本轮完成的改动
+
+#### ✅ Writer endpoint：顶层字段检测与引导错误
+
+**文件**：`src/app/api/workspace/events/route.ts`
+
+当 `body.event` 缺失时，自动检查 body 顶层是否包含已知 event 字段（`type`, `summary`, `content`, `section`, `sections`, `actorIds`, `conflictId`, `decisionId`, `value`）。如果检测到，返回结构化错误：
+
+```json
+{
+  "error": "event fields must be wrapped under an \"event\" key",
+  "hint": "Send { \"roomId\": \"...\", \"event\": { \"type\": \"...\", \"summary\": \"...\", ... } } — not flat at the top level.",
+  "example": { "roomId": "YOURROOM", "event": { "type": "conflict.detected", ... } }
+}
+```
+
+同时将 `body` 类型扩展为 `{ roomId?, event? } & Record<string, unknown>`，确保 TypeScript 对 `Object.keys(body)` 的访问无类型错误。
+
+### 为什么这是方向正确的改动
+
+DeepWork 的协议可发现性（discoverability）直接影响外部 agent 接入速度。当前 agent 如果从 `GET /api/workspace` 返回的 `projectKey.supportedEventTypes` 推断出可以写 `conflict.detected`，下一步很自然地会尝试 `POST { roomId, type, summary, sections }` 而非 `POST { roomId, event: { type, summary, sections } }`。原有的 `event is required` 不传递任何修正信息；新错误直接给出正确格式和可复制示例，把"协议自文档"推进了一步，降低双机器测试的摩擦。
+
+### 验证状态
+
+`npm run build` 通过，`/api/workspace/events` bundle 无变化（纯服务端路由，bundle size 显示 0 B 正常）。本轮改动仅影响 400 错误响应的内容，不改变任何正常路径行为，零风险。
+
+### 下一步建议
+
+1. **P0 — 端到端演练**（4/29 前）：按 `docs/demo-quickstart.md` 核对清单完整执行，包括 Section 7 的 conflict curl 路径，特别验证新的 top-level 错误提示（curl 故意发顶层格式看提示是否清晰）。
+2. **P0 — 合成质量验证**：用真实 Anthropic key 跑一次 6 角色合成，检查 attribution 常亮、整体板块效果、等待文案。
+3. **P1 — 多轮迭代 prompt 优化**：第二次及以后的合成可在 prompt 中附上上一轮 HTML 概述（不含完整 HTML，只含 attribution map 和 sections），让 Claude 知道"迭代"背景，减少不必要的大改。
+
+---
+
 ## 第三十九轮分析 — 2026/04/26
 
 ### 本轮扫描结论
