@@ -47,6 +47,7 @@ export default function RoomPage() {
   const [populating, setPopulating] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('flow');
   const intentsEndRef = useRef<HTMLDivElement>(null);
+  const prevRoomStatusRef = useRef<'collecting' | 'synthesizing' | 'done'>('collecting');
   const supabase = createClient();
 
   const copyRoomCode = () => {
@@ -82,7 +83,9 @@ export default function RoomPage() {
       .maybeSingle()
       .then(({ data }) => {
         if (data?.status) {
-          setRoomStatus(data.status as 'collecting' | 'synthesizing' | 'done');
+          const s = data.status as 'collecting' | 'synthesizing' | 'done';
+          prevRoomStatusRef.current = s;
+          setRoomStatus(s);
         }
       });
   }, [id, supabase]);
@@ -188,6 +191,10 @@ export default function RoomPage() {
         filter: `id=eq.${id}`,
       }, payload => {
         const status = payload.new.status as 'collecting' | 'synthesizing' | 'done';
+        if (prevRoomStatusRef.current === 'synthesizing' && status === 'collecting') {
+          setRequestError('合成失败，请重试');
+        }
+        prevRoomStatusRef.current = status;
         setRoomStatus(status);
         setSynthesizing(status === 'synthesizing');
         if (status === 'done') {

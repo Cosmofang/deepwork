@@ -4,6 +4,48 @@
 
 ---
 
+## 第三十六轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮发现两个遗留问题：
+1. **构建失败**：Cycles 28–34 的协议代码改动从未通过 `npm run build` 验证。运行后发现 TypeScript 类型错误：`RoomStateEvent` 接口缺少 `linkedEventIds` 和 `patchId` 字段，而 `toSemanticEventPayload` 的 `patch.proposed/patch.applied` 分支已引用这两个字段。
+2. **合成失败静默 UX 缺口**：当合成超时或 Claude 返回不可解析响应，`synthesize/route.ts` 会将房间状态从 `synthesizing` 回滚到 `collecting`，Supabase Realtime 向所有参与者广播状态变更，合成 overlay 消失，但仅有**触发者**通过 fetch 响应的 `requestError` 知道失败原因；**被动参与者**（没有发起合成的人）看到 overlay 突然消失，没有任何提示。
+
+### 本轮完成的改动
+
+#### ✅ 修复 TypeScript 构建错误
+
+**文件**：`src/lib/room-state.ts`
+
+- 在 `RoomStateEvent` 接口中新增 `linkedEventIds?: string[]` 和 `patchId?: string`
+- 这两个字段在 `toSemanticEventPayload` 的 `patch.proposed`/`patch.applied` case 中已被使用，但在接口定义中缺失，导致 `npm run build` 类型检查失败
+
+#### ✅ 合成失败通知：被动参与者
+
+**文件**：`src/app/room/[id]/page.tsx`
+
+- 新增 `prevRoomStatusRef = useRef<'collecting' | 'synthesizing' | 'done'>('collecting')`
+- 在初始房间状态 fetch 完成时，同步更新 `prevRoomStatusRef.current`（确保页面加载后即追踪正确的起始状态）
+- 在 Realtime 房间状态变更处理器中：检测 `synthesizing → collecting` 转换，若检测到此转换，调用 `setRequestError('合成失败，请重试')`
+- 现在所有参与者（不只是触发合成的人）都会在合成失败后看到红色错误提示，而不是 overlay 无声消失
+
+#### ✅ 构建验证
+
+`npm run build` 通过，`/room/[id]` bundle 从 7.72 kB → 7.76 kB。
+
+### 为什么这是方向正确的改动
+
+Demo 场景中，通常是一位演示者触发合成，其余 5 人被动等待。如果合成失败（超时、Claude API 错误、网络问题），被动等待者会看到旋转动画突然停止，无法判断是正常完成、还是失败、还是被跳转走了。加入合成失败通知后，所有人都能同步看到"合成失败，请重试"，演示者也能更快做出"再点一次合成"的决策，而不是被6个人不同步的困惑拖慢。
+
+### 下一步建议
+
+1. **P0 — demo 端到端演练**（4/29 前）：配置 `.env.local`，走完「加入 → 一键填充 → 合成 → 归因常亮 → 继续迭代」，特别验证合成超时场景是否正确展示错误提示
+2. **P1 — README 定位语句**：加一句 "DeepWork is not project management for AI agents; it is the shared semantic state they coordinate through"，防止产品叙事向 Multica/任务管理漂移
+3. **P1 — 双机器 governance 测试**：POST `conflict.detected` → GET workspace → 看 `recommendedNextActions[0].priority === 'p0'` → POST `decision.accepted` → 确认 unresolved 消失
+
+---
+
 ## 第三十五轮分析 — 2026/04/26
 
 ### 本轮扫描结论
