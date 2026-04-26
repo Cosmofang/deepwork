@@ -4,6 +4,46 @@
 
 ---
 
+## 第三十八轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+复查 git status：Cycle 37 的 README.md 与 work-log.md 修改尚未提交。先提交 Cycle 37，再执行本轮主要改动。
+
+本轮识别的最高价值 gap：`docs/demo-quickstart.md` 在多个历史轮次（Cycle 33、35、36、37）的"下一步建议"中均排 P1，但始终未实现。距离 4/30 演示只剩 4 天，缺少从零到跑通演示路径的自包含文档，是最高演示风险之一。
+
+### 本轮完成的改动
+
+#### ✅ `docs/demo-quickstart.md` — 新建
+
+包含：
+- 15 分钟从零配置到演示就绪的完整步骤（git clone → npm install → `.env.local` → npm run dev）
+- Supabase 表检查 SQL
+- 演示前核对清单（10 项，逐一可验证）
+- Golden Path 演示路径（5 步）
+- 故障排查：合成失败 / Realtime 不更新 / `.deepwork/` 不生成 / 归因高亮不显示
+- 双机器 governance curl 最小验证路径
+
+### 为什么这是方向正确的改动
+
+4/30 演示是当前最大的外部约束。评审者或新加入的队员如果需要在演示前几小时重新配置环境，没有 quickstart 文档会直接导致演示失败。这份文档把演示脚本（demo-script.md）、协议入口（protocol-agent-entrypoint.md）和双机器测试（protocol-dual-machine-test.md）之间的操作层连接起来，让任何人都能在 15 分钟内从零进入可运行状态。
+
+### 验证状态
+
+纯文档改动，不影响编译。已静态复核：
+- 环境变量名与 `.env.local.example` 一致
+- 合成超时、模型名、maxDuration 与 `src/app/api/synthesize/route.ts` 一致（claude-opus-4-7、90s、maxDuration=120）
+- Supabase Realtime 表名与 `src/app/room/[id]/page.tsx` 订阅一致（rooms、participants、intents、synthesis_results）
+- curl 命令与 `src/app/api/workspace/events/route.ts` 接受的字段一致
+
+### 下一步建议
+
+1. **P0 — demo 端到端演练**（4/29 前）：配置真实 `.env.local`，按 `docs/demo-quickstart.md` 核对清单逐项验证，特别测试合成失败提示（Cycle 36 新增）。
+2. **P1 — 双机器 governance curl 测试**：按 `docs/demo-quickstart.md` 第 7 节和 `docs/protocol-dual-machine-test.md` 执行完整测试。
+3. **P1 — 合成质量验证**：用真实 API key 跑一次完整合成，检查「整体」板块意图是否体现在 header/footer/整体配色。
+
+---
+
 ## 第三十七轮分析 — 2026/04/26
 
 ### 本轮扫描结论
