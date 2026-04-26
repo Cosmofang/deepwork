@@ -201,20 +201,7 @@ ${intentLines}
 - 若同一板块存在矛盾意图，优先找折中方案，记录解决方式
 
 ### 归因规则
-- attributionMap 中每个 key 为区块标题（如「首屏 Hero」），value 为贡献最多的角色 ID
-
-## 输出格式
-
-返回严格的 JSON（禁止 markdown 代码块，禁止任何前缀文字，直接从 { 开始）：
-{
-  "html": "<!DOCTYPE html>...",
-  "attributionMap": {
-    "首屏 Hero": "designer",
-    "价值主张": "copywriter"
-  },
-  "conflictsDetected": ["冲突描述"],
-  "conflictsResolved": ["解决方式"]
-}`
+- attributionMap 中每个 key 为区块标题（如「首屏 Hero」），value 为贡献最多的角色 ID`
       : `你是一个多角色协作设计合成师。你的任务是将一个团队的意图合成为一个高质量产品落地页 HTML。
 
 ## 团队意图（按板块分组）
@@ -256,20 +243,35 @@ ${intentLines}
 - 若同一板块存在矛盾意图，优先找折中方案，记录解决方式
 
 ### 归因规则
-- attributionMap 中每个 key 为区块标题（如「首屏 Hero」），value 为贡献最多的角色 ID
+- attributionMap 中每个 key 为区块标题（如「首屏 Hero」），value 为贡献最多的角色 ID`;
 
-## 输出格式
+    type SynthesisOutput = {
+      html: string;
+      attributionMap: Record<string, string>;
+      conflictsDetected: string[];
+      conflictsResolved: string[];
+    };
 
-返回严格的 JSON（禁止 markdown 代码块，禁止任何前缀文字，直接从 { 开始）：
-{
-  "html": "<!DOCTYPE html>...",
-  "attributionMap": {
-    "首屏 Hero": "designer",
-    "价值主张": "copywriter"
-  },
-  "conflictsDetected": ["冲突描述"],
-  "conflictsResolved": ["解决方式"]
-}`;
+    const synthesisTools = [
+      {
+        name: 'generate_landing_page',
+        description: 'Output the synthesized landing page HTML with attribution metadata',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            html: { type: 'string', description: 'Complete <!DOCTYPE html> landing page with all styles inline' },
+            attributionMap: {
+              type: 'object',
+              description: 'Map of section name to the role ID that contributed most',
+              additionalProperties: { type: 'string' },
+            },
+            conflictsDetected: { type: 'array', items: { type: 'string' }, description: 'List of detected intent conflicts' },
+            conflictsResolved: { type: 'array', items: { type: 'string' }, description: 'How each conflict was resolved' },
+          },
+          required: ['html', 'attributionMap', 'conflictsDetected', 'conflictsResolved'],
+        },
+      },
+    ] as Parameters<typeof anthropic.messages.create>[0]['tools'];
 
     const timeoutMs = 90_000;
     const controller = new AbortController();
@@ -281,6 +283,8 @@ ${intentLines}
         {
           model: 'claude-sonnet-4-6',
           max_tokens: 16000,
+          tools: synthesisTools,
+          tool_choice: { type: 'tool', name: 'generate_landing_page' },
           messages: [{ role: 'user', content: prompt }],
         },
         { signal: controller.signal }
@@ -289,37 +293,15 @@ ${intentLines}
       clearTimeout(timeoutHandle);
     }
 
-    const text = (message.content[0] as { type: string; text: string }).text;
-
-    type SynthesisOutput = {
-      html: string;
-      attributionMap: Record<string, string>;
-      conflictsDetected: string[];
-      conflictsResolved: string[];
-    };
-
     let output: SynthesisOutput | null = null;
 
-    try {
-      output = JSON.parse(text) as SynthesisOutput;
-    } catch {
-      // Find the outermost JSON object by tracking brace depth
-      let start = text.indexOf('{');
-      while (start !== -1 && output === null) {
-        let depth = 0;
-        let end = start;
-        for (let i = start; i < text.length; i++) {
-          if (text[i] === '{') depth++;
-          else if (text[i] === '}') {
-            depth--;
-            if (depth === 0) { end = i; break; }
-          }
-        }
-        try {
-          output = JSON.parse(text.slice(start, end + 1)) as SynthesisOutput;
-        } catch {
-          start = text.indexOf('{', start + 1);
-        }
+    const toolBlock = message.content.find(b => b.type === 'tool_use');
+    if (toolBlock && toolBlock.type === 'tool_use') {
+      output = toolBlock.input as SynthesisOutput;
+    } else {
+      const textBlock = message.content.find(b => b.type === 'text');
+      if (textBlock && textBlock.type === 'text') {
+        try { output = JSON.parse(textBlock.text) as SynthesisOutput; } catch { /* */ }
       }
     }
 
