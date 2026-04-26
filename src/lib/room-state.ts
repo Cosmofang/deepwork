@@ -15,6 +15,7 @@ import {
   DeepWorkSemanticEvent,
   toSemanticEventType,
 } from '@/types/deepwork-protocol';
+import { GovernanceIndex, readGovernanceIndex, updateGovernanceIndex } from '@/lib/governance-index';
 
 type IntentWithParticipant = Intent & { participant: Participant | null };
 
@@ -416,10 +417,23 @@ function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWork
   }
 }
 
-function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSemanticEvent[] = []): DeepWorkSnapshot {
-  const proposedPatches = recentEvents
+function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSemanticEvent[] = [], governanceIndex?: GovernanceIndex | null): DeepWorkSnapshot {
+  // Seed proposed patches from the persistent governance index (survives >100 event windows).
+  // Then add any recent patch.proposed events not yet in the index, and remove any closed by recent events.
+  const indexedPatchIds = new Set(
+    (governanceIndex?.openPatches ?? []).map(p => eventIdentity(p) || p.patchId || '').filter(Boolean)
+  );
+  const indexedPatchPatchIds = new Set(
+    (governanceIndex?.openPatches ?? []).map(p => p.patchId).filter(Boolean) as string[]
+  );
+  const recentProposals = recentEvents
     .filter((event): event is DeepWorkPatchEvent => event.type === 'patch.proposed')
-    .filter(proposedPatch => {
+    .filter(p => !indexedPatchIds.has(eventIdentity(p)) && !(p.patchId && indexedPatchPatchIds.has(p.patchId)));
+  const allPatches: DeepWorkPatchEvent[] = [
+    ...(governanceIndex?.openPatches ?? []),
+    ...recentProposals,
+  ];
+  const proposedPatches = allPatches.filter(proposedPatch => {
       const proposedPatchId = eventIdentity(proposedPatch);
       const proposedPatchIds = [proposedPatchId, proposedPatch.patchId].filter(Boolean) as string[];
       return !recentEvents.some(event => {
@@ -540,19 +554,35 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
     });
   }
 
-  // Unresolved conflicts recorded in recent events.
-  const conflictEvents = recentEvents.filter(
-    (event): event is DeepWorkConflictDetectedEvent => event.type === 'conflict.detected'
-  );
+  // Unresolved conflicts: seed from persistent governance index, then add recent unindexed ones.
   const resolvedIds = new Set(
     recentEvents
       .filter(e => e.type === 'decision.accepted')
       .map(e => e.decisionId || '')
       .filter(Boolean)
   );
-  const unresolvedConflicts = conflictEvents.filter(event => !resolvedIds.has(event.conflictId || eventIdentity(event)));
+  const indexedConflictIds = new Set(
+    (governanceIndex?.openConflicts ?? []).map(c => c.id || c.conflictId || '').filter(Boolean)
+  );
+  const indexedConflictConflictIds = new Set(
+    (governanceIndex?.openConflicts ?? []).map(c => c.conflictId).filter(Boolean) as string[]
+  );
+  const recentConflicts = recentEvents.filter(
+    (event): event is DeepWorkConflictDetectedEvent => event.type === 'conflict.detected'
+  ).filter(e => !indexedConflictIds.has(eventIdentity(e)) && !(e.conflictId && indexedConflictConflictIds.has(e.conflictId)));
+
+  type ConflictLike = { id?: string; conflictId?: string; summary: string; sections?: string[]; actorIds?: string[]; recordedAt?: string };
+  const allConflicts: ConflictLike[] = [
+    ...(governanceIndex?.openConflicts ?? []).map(c => ({ id: c.id, conflictId: c.conflictId, summary: c.summary, sections: c.sections, actorIds: c.actorIds, recordedAt: c.recordedAt })),
+    ...recentConflicts.map(e => ({ id: eventIdentity(e), conflictId: e.conflictId, summary: e.summary, sections: e.sections, actorIds: e.actorIds, recordedAt: e.recordedAt })),
+  ];
+  const unresolvedConflicts = allConflicts.filter(c => {
+    const id = c.id || c.conflictId || '';
+    return !resolvedIds.has(id) && !(c.conflictId && resolvedIds.has(c.conflictId));
+  });
   if (unresolvedConflicts.length > 0) {
-    const affectedSections = Array.from(new Set(unresolvedConflicts.flatMap(event => event.sections ?? [])));
+    const affectedSections = Array.from(new Set(unresolvedConflicts.flatMap(c => c.sections ?? [])));
+    const conflictIds = unresolvedConflicts.map(c => c.id || c.conflictId || '').filter(Boolean);
     recommendedNextActions.push({
       id: 'resolve-open-conflicts',
       priority: 'p0',
@@ -561,11 +591,11 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
       eventTypes: ['decision.accepted'],
       suggestedAction: 'write_event',
       affectedSections: affectedSections.length ? affectedSections : undefined,
-      linkedEventIds: unresolvedConflicts.map(event => event.conflictId || eventIdentity(event)),
+      linkedEventIds: conflictIds,
       closeWith: {
         eventType: 'decision.accepted',
         field: 'decisionId',
-        acceptedValues: unresolvedConflicts.map(event => event.conflictId || eventIdentity(event)),
+        acceptedValues: conflictIds,
         note: 'Use one accepted value per decision.accepted event so other agents can verify the conflict closure from shared state.',
       },
       governancePolicy: {
@@ -650,18 +680,18 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
       })),
     proposedPatches,
     latestArtifacts,
-    unresolvedConflicts: unresolvedConflicts.map(event => ({
-      id: event.conflictId || eventIdentity(event),
-      summary: event.summary,
-      sections: event.sections,
-      actorIds: event.actorIds,
+    unresolvedConflicts: unresolvedConflicts.map(c => ({
+      id: c.id || c.conflictId || '',
+      summary: c.summary,
+      sections: c.sections,
+      actorIds: c.actorIds,
     })),
     recommendedNextActions,
   };
 }
 
-export function toDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSemanticEvent[] = []): DeepWorkSnapshot {
-  return buildDeepWorkSnapshot(snapshot, recentEvents);
+export function toDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSemanticEvent[] = [], governanceIndex?: GovernanceIndex | null): DeepWorkSnapshot {
+  return buildDeepWorkSnapshot(snapshot, recentEvents, governanceIndex);
 }
 
 export async function syncRoomStateToWorkspace(roomId: string, event?: RoomStateEvent, priorEvents: RoomStateEvent[] = []) {
@@ -687,10 +717,10 @@ export async function syncRoomStateToWorkspace(roomId: string, event?: RoomState
 
   const events = event ? [...priorEvents, event] : priorEvents;
   if (events.length > 0) {
-    const lines = events
-      .map(nextEvent => JSON.stringify(toSemanticEventPayload(roomId, nextEvent)))
-      .join('\n');
+    const semanticEvents = events.map(nextEvent => toSemanticEventPayload(roomId, nextEvent));
+    const lines = semanticEvents.map(e => JSON.stringify(e)).join('\n');
     await fs.appendFile(path.join(roomDir, 'events.ndjson'), `${lines}\n`, 'utf8');
+    await updateGovernanceIndex(roomDir, sanitizeRoomId(roomId), semanticEvents as DeepWorkSemanticEvent[]);
   }
 
   await writeProjectEntry(snapshot, roomDir);

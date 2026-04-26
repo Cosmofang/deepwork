@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { syncRoomStateToWorkspace, toDeepWorkSnapshot } from '@/lib/room-state';
+import { readGovernanceIndex } from '@/lib/governance-index';
 import { getSupabaseServerConfigStatus } from '@/lib/supabase-server';
 import {
   DEEPWORK_ACTION_CAPABILITIES,
@@ -55,14 +56,16 @@ export async function GET(req: NextRequest) {
 
   // Try cached file first (sub-millisecond read)
   try {
-    const [snapshotRaw, projectKeyRaw, recentEvents] = await Promise.all([
+    const governanceIndexPath = path.join(DEEPWORK_ROOT, 'rooms', safeId);
+    const [snapshotRaw, projectKeyRaw, recentEvents, governanceIndex] = await Promise.all([
       fs.readFile(snapshotPath, 'utf8'),
       fs.readFile(projectKeyPath, 'utf8').catch(() => null),
       readRecentEvents(safeId),
+      readGovernanceIndex(governanceIndexPath),
     ]);
 
     const roomSnapshot = JSON.parse(snapshotRaw);
-    const snapshot = toDeepWorkSnapshot(roomSnapshot, recentEvents);
+    const snapshot = toDeepWorkSnapshot(roomSnapshot, recentEvents, governanceIndex);
     const projectKey = projectKeyRaw ? JSON.parse(projectKeyRaw) as object : null;
 
     return NextResponse.json(
@@ -91,14 +94,16 @@ export async function GET(req: NextRequest) {
     }
 
     await syncRoomStateToWorkspace(roomId);
-    const [snapshotRaw, projectKeyRaw, recentEvents] = await Promise.all([
+    const governanceIndexPath = path.join(DEEPWORK_ROOT, 'rooms', safeId);
+    const [snapshotRaw, projectKeyRaw, recentEvents, governanceIndex] = await Promise.all([
       fs.readFile(snapshotPath, 'utf8'),
       fs.readFile(projectKeyPath, 'utf8').catch(() => null),
       readRecentEvents(safeId),
+      readGovernanceIndex(governanceIndexPath),
     ]);
 
     const roomSnapshot = JSON.parse(snapshotRaw);
-    const snapshot = toDeepWorkSnapshot(roomSnapshot, recentEvents);
+    const snapshot = toDeepWorkSnapshot(roomSnapshot, recentEvents, governanceIndex);
     const projectKey = projectKeyRaw ? JSON.parse(projectKeyRaw) as object : null;
 
     return NextResponse.json(

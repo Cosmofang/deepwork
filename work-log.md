@@ -2,6 +2,76 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第五十六轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+优先级列表 P0 项（需要真实凭据）不在自主改动范围内。本轮实现 **P1：governance index 持久化**——超过 100 条 NDJSON 事件后，开放冲突（unresolvedConflicts）和待审 patch（proposedPatches）不再从治理视图中消失。
+
+### 问题分析
+
+`src/app/api/workspace/route.ts` 中的 `RECENT_EVENTS_LIMIT = 100`，`buildDeepWorkSnapshot` 只扫描最近 100 条事件推导治理状态。对于长期运行的房间（demo 重复使用同一 roomId），超过 100 条事件后：
+- 早期写入的 `conflict.detected` 事件滚出窗口，从 `unresolvedConflicts` 中消失
+- 早期写入的 `patch.proposed` 事件滚出窗口，从 `proposedPatches` 中消失
+- `recommendedNextActions` 的 `resolve-open-conflicts` 和 `review-proposed-patches` 提示随之消失
+
+这对 agent-era protocol 演示有实质影响：外部代理读取 workspace snapshot 时看不到完整的治理负债，误判房间状态为"清洁"。
+
+### 本轮完成的改动
+
+#### ✅ 新建 `src/lib/governance-index.ts`
+
+新增 `GovernanceIndex` 持久化结构，包含 `openConflicts` 和 `openPatches`，存储在 `.deepwork/rooms/{roomId}/governance-index.json`。
+
+关键函数：
+- `readGovernanceIndex(roomDir)` — 读取文件，不存在返回 `null`（优雅降级）
+- `applyEventsToIndex(index, events)` — 纯函数，处理四类事件：
+  - `conflict.detected` → 追加到 `openConflicts`（按 id/conflictId 去重）
+  - `patch.proposed` → 追加到 `openPatches`（按 id/patchId 去重）
+  - `decision.accepted` → 从两个列表中移除匹配的冲突和 patch
+  - `patch.applied` → 从 `openPatches` 中移除（支持 linkedEventIds、patchId、linkedIntents 三种别名）
+- `updateGovernanceIndex(roomDir, roomId, newEvents)` — 读取 → apply → 写回（原子更新）
+
+**设计约束**：此模块无 Supabase 导入，可被 `workspace/events/route.ts` 安全引用（该路由为避免服务端 Supabase client 树摇问题，不导入 `room-state.ts`）。
+
+#### ✅ `src/lib/room-state.ts` — `buildDeepWorkSnapshot` 接受 governance index
+
+`buildDeepWorkSnapshot(snapshot, recentEvents, governanceIndex?)` 新增第三个可选参数。
+
+逻辑变更：
+- `proposedPatches` 先从 `governanceIndex.openPatches` 取全量，再补充 recentEvents 中尚未入库的新 proposal，最后用 recentEvents 的 close 事件过滤。100 条窗口外的旧 patch 不再消失。
+- `unresolvedConflicts` 同理：从 `governanceIndex.openConflicts` 取全量，补充 recentEvents 中的新 conflict，用 recentEvents 的 `decision.accepted` 过滤。
+- 无 governance index 时（`null`）完全向后兼容，行为与 Cycle 55 相同。
+
+`syncRoomStateToWorkspace` 在 append events.ndjson 之后，同步调用 `updateGovernanceIndex`，确保两个文件始终一致。
+
+`toDeepWorkSnapshot` 签名同步更新，透传 `governanceIndex` 参数。
+
+#### ✅ `src/app/api/workspace/route.ts` — 读取 governance index 后传入 snapshot builder
+
+cache 和 live 两条读取路径均加入 `readGovernanceIndex(roomDir)` 并行读取，结果传给 `toDeepWorkSnapshot`。
+
+#### ✅ `src/app/api/workspace/events/route.ts` — 外部代理写事件时同步更新 governance index
+
+在 `fs.appendFile(eventsPath, ...)` 之后、`updateWorkspaceMetadata` 之前调用 `updateGovernanceIndex`，确保外部代理触发的 governance 事件立即持久化。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。
+
+### 当前已知限制（未改动）
+
+- governance index 是本地单机文件，不跨机器同步（与 `.deepwork/` 其他文件相同）
+- 阶段标签是客户端时间估算，不反映真实服务端合成进度
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（`docs/demo-quickstart.md` 清单）
+- **P0**：用真实 roomId 执行 `protocol-agent-entrypoint.md` 中的最小治理闭环验证脚本
+- **P2**：合成进度真正暴露（SSE 或 Anthropic streaming），阶段标签改为服务端驱动
+
+---
+
 ## 第五十五轮分析 — 2026/04/27
 
 ### 本轮扫描结论

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { updateGovernanceIndex } from '@/lib/governance-index';
 import {
   DEEPWORK_SUPPORTED_EVENT_TYPES,
   DeepWorkArtifactUpdatedEvent,
@@ -349,6 +350,7 @@ export async function POST(req: NextRequest) {
   } as DeepWorkSemanticEvent;
 
   await fs.appendFile(eventsPath, `${JSON.stringify(semanticEvent)}\n`, 'utf8');
+  await updateGovernanceIndex(roomDir, roomId, [semanticEvent]);
   await updateWorkspaceMetadata(roomId, roomDir, eventsPath);
 
   return NextResponse.json({ ok: true, event: semanticEvent }, { status: 201 });
