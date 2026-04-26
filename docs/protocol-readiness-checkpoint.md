@@ -1,12 +1,16 @@
 # DeepWork Protocol Readiness Checkpoint
 
-更新时间：2026-04-26
+更新时间：2026-04-26（Cycle 53）
+
+> **读取提示**：本文件是历史 checkpoint 记录，描述已实现能力与已解决缺口。如果你是 continuation agent，优先读取 `docs/protocol-agent-entrypoint.md`，它包含当前状态、快速操作参考和最小治理闭环脚本。
+
+---
 
 ## 当前判断
 
 DeepWork 已经不只是一个落地页协作 Demo。当前代码里已经出现了一个可被人类和代理共同读取的协作状态层：`.deepwork/project.json` 作为 project key，`.deepwork/rooms/{roomId}/snapshot.json` 作为房间快照，`.deepwork/rooms/{roomId}/events.ndjson` 作为语义事件流，`/api/workspace` 作为代理读取入口，`/api/workspace/events` 作为受限写入入口。
 
-这说明产品方向可以从「多人提交意图，AI 生成 HTML」继续扩展为「共享项目状态 + 意图协议 + 可治理合成」。Landing page demo 应被保留为 wedge：它让观众在 3 分钟内看到意图收集、状态同步、合成、归因和下一步行动建议，但底层协议要表达得更清楚。
+---
 
 ## 已实现的协议能力
 
@@ -14,13 +18,9 @@ DeepWork 已经不只是一个落地页协作 Demo。当前代码里已经出现
 
 `src/types/deepwork-protocol.ts` 定义了 `DeepWorkProjectKey`。实际写入路径在 `src/lib/room-state.ts` 和 `src/app/api/workspace/events/route.ts` 中。它包含协议版本、项目 ID、当前房间、当前快照路径、事件路径、实时 channel、支持的事件类型、输出文件和权限。
 
-这个结构已经足够支持另一台机器或另一个代理先读取 `.deepwork/project.json`，再定位当前 room 的 snapshot 与 events。
-
 ### Snapshot
 
 `DeepWorkSnapshot` 已经把房间状态提升为 agent-readable 结构。它包含 actors、sections、recentIntents、decisions、proposedPatches、latestArtifacts、unresolvedConflicts、recommendedNextActions。
-
-这比普通数据库 dump 更接近协议层，因为它回答的是「现在这个项目状态意味着什么」而不只是「数据库里有什么」。
 
 ### Semantic event stream
 
@@ -32,36 +32,58 @@ DeepWork 已经不只是一个落地页协作 Demo。当前代码里已经出现
 
 当前已实现两个重要治理约束。第一，`/api/workspace/events` 只允许外部代理写入非破坏性事件，不允许直接触发 synthesis.started / synthesis.completed。第二，`recommendedNextActions` 会把 proposed patches、unresolved conflicts、stale synthesis 转成明确的下一步建议，并附带 governancePolicy。
 
-这已经把 DeepWork 从「让 AI 自动改」拉回到「AI 可提议，人类/可信 actor 可治理」。
+---
 
-## 发现的风险和缺口
+## 已解决的缺口（历史记录）
 
-### 冲突事件结构一致性
+以下缺口在早期版本中存在，截至 Cycle 53 均已修复：
 
-此前 `src/app/api/synthesize/route.ts` 在记录 unresolved conflicts 时，直接 append `conflict.detected` 到 `events.ndjson`，但事件里没有 `sections` 和 `actorIds`。而 `/api/workspace/events` 对同类型事件的校验要求 `sections` 和 `actorIds` 是字符串数组。
+### ✅ 冲突事件结构一致性（Cycle 44）
 
-本轮已将 synthesis 路径写出的 `conflict.detected` 补齐为包含 `sections: []` 和 `actorIds: []` 的事件。这样 synthesis writer 与 external writer 的事件形状保持一致：当 Claude 只返回自然语言冲突描述、暂时无法定位具体 section/actor 时，用空数组表达“未知/未归类”，而不是省略字段。
+此前 `src/app/api/synthesize/route.ts` 在记录 unresolved conflicts 时，`conflict.detected` 事件缺少 `sections` 和 `actorIds` 字段。已修复：synthesis writer 写出的 `conflict.detected` 包含 `sections: []` 和 `actorIds: []`，与外部 writer 契约保持一致。
 
-### 协议文档缺失
+### ✅ 协议文档缺口（Cycle 45）
 
-目前协议主要存在于 TypeScript 类型和 API 注释里，没有一个稳定的人类/代理都能看的文档入口。对于「双机器 Claude/OpenClaw workflow」来说，另一个代理应该能先读一个短文档就知道：读取顺序是什么、哪些事件能写、哪些动作需要人类治理、如何关闭 proposed patch/conflict。
+协议主要存在于 TypeScript 类型里，没有 agent-readable 文档入口。已修复：`docs/protocol-agent-entrypoint.md` 是当前 agent 读取顺序入口，`docs/protocol-event-contract.md` 是完整事件契约，`docs/protocol-dual-machine-test.md` 是双机器测试计划。
 
-### Action capability examples need to match closure semantics
+### ✅ NDJSON reader 容错（Cycle 49）
 
-`DeepWorkActionCapabilities` now exposes example payloads for `review_patch`. The patch-applied example should stay aligned with the actual reader closure rule: a `patch.applied` event may include the proposed patch identity in `patchId`, `linkedEventIds`, or both. This matters because continuation agents often copy examples more reliably than prose; if the example writes a field the reader does not treat as a closure identity, the shared snapshot keeps reporting the proposed patch as open.
+workspace reader 在遇到单条恶性 NDJSON 行时会中断整个解析。已修复：reader 对每行独立 try/catch，跳过无法解析的行并继续返回可解析的 recent events。
 
-The current example includes both `patchId` and `linkedEventIds` from `recommendedNextActions[].closeWith.acceptedValues`. This is intentionally redundant: `linkedEventIds` follows the advertised `closeWith.field`, while `patchId` gives a direct semantic alias for agents that treat patch governance like conflict governance.
+### ✅ patchId 作为 patch 关闭别名（Cycle 50）
 
-### Git 状态需要清理确认
+`patch.proposed` 的 `patchId` 字段未被 writer validation 和 snapshot reader 识别为合法 closure 标识。已修复：TypeScript 类型、events writer validation、snapshot reader buildDeepWorkSnapshot 均支持 `patchId` 作为关闭别名，与 `linkedEventIds`、`linkedIntents`、`decisionId` 并列。
 
-项目目录是 git 仓库，但当前自动检查尚未做完整 diff 审计。下次运行应把 `git status --short` 和关键 diff 纳入例行检查，避免把历史未提交变更误判为本轮变更。
+### ✅ review_patch 示例 payload 与 reader closure 语义对齐（Cycle 51）
+
+`review_patch` capability 示例 payload 只携带 `linkedEventIds`，不携带 `patchId`，与 Cycle 50 新增的 patchId alias 不一致。已修复：patch.applied 示例同时携带 `patchId` 与 `linkedEventIds`（使用相同占位值），覆盖两种关闭路径，continuation agent 复制任一字段均可关闭 proposal。
+
+### ✅ catch 块不写入 failure event（Cycle 52）
+
+`src/app/api/synthesize/route.ts` 主 `catch` 块（处理 90s AbortError 超时等所有非 JSON 解析失败）未调用 `recordSynthesisFailure`，导致 `synthesis.started` 孤立在 `events.ndjson` 中无对应 failure/completion 事件。已修复：catch 块现在 `catch (err) { await recordSynthesisFailure(...) }` 将错误信息写入协议日志，snapshot reader 可区分「合成进行中」与「合成失败已恢复」。
+
+### ✅ 文档扫描成本（Cycle 53，本轮）
+
+三份协议文档（event-contract、dual-machine-test、readiness-checkpoint）有重叠内容，continuation agent 需要扫描多文件才能知道下一步操作。已修复：`docs/protocol-agent-entrypoint.md` 更新为自包含快速参考，包含最常见的三种操作（conflict.detected、decision.accepted、patch.proposed→patch.applied）的完整 curl 示例，以及最小治理闭环验证脚本，agent 读完入口文件即可执行常见操作，不需要先扫描 event-contract 或 dual-machine-test。
+
+---
+
+## 当前仍存在的限制（需关注）
+
+### ⚠️ governance index 不持久
+
+当前 workspace reader 只归约最近 100 条可解析 semantic events。超过 100 条后，older proposed patches 和 conflicts 可能消失，不再出现在 recommendedNextActions 中。对 hackathon demo 足够，但长期不是 durable governance。
+
+### ⚠️ `.deepwork/` 文件是本地单机落盘
+
+真正的双机器测试需要共享的 HTTP endpoint（同一 Supabase）。本地 `.deepwork/` 文件只对运行服务的机器可见，不是跨机器 canonical source。
+
+### ⚠️ 合成后端不暴露进度
+
+合成 90s 超时期间，前端只能显示 spinner，无法知道 Claude 处理进度。如果 Anthropic API 出现中间断连（非超时），用户会等到超时才看到错误。这对 demo 影响：需要稳定网络或切换为更快模型（`claude-sonnet-4-6`）进行快速测速。
+
+---
 
 ## 建议的下一步产品表达
 
 Demo 现场可以这样讲：DeepWork 表面上是在多人协作生成 landing page，但真正展示的是一个 agent-era collaboration layer。每个人提交的不是评论，而是结构化意图；AI 不是直接覆盖产物，而是产生可归因的合成；另一个代理不是读取聊天记录，而是读取 project key、snapshot 和 event stream；任何 patch、冲突、决策都能被事件化并治理。
-
-这会比「AI 做网页」更贴近项目目标，也更容易解释为什么 DeepWork 是一个工作模式，而不是一个单点工具。
-
-## 本次改进
-
-本文件把当前协议状态、已实现能力、缺口和下一步表达整理为一个可持续读取的 checkpoint。它可以作为后续每 30 分钟分析时的基准，也可以作为外部代理理解 DeepWork 方向的第一份文档。

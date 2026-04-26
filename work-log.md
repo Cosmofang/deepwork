@@ -2,6 +2,55 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第五十三轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮接续第五十二轮，重点检查文档扫描成本问题。当前三份协议文档（`protocol-event-contract.md`、`protocol-dual-machine-test.md`、`protocol-readiness-checkpoint.md`）有大量重叠内容，continuation agent 需要扫描多个文件才能知道如何执行常见操作（写 conflict、关闭冲突、提出 patch）。`protocol-agent-entrypoint.md` 虽然有读取顺序，但没有快速操作参考，agent 还是需要跳转到 event-contract 或 dual-machine-test 才能拿到可用的 curl 示例。
+
+### 本轮完成的改动
+
+#### ✅ `protocol-agent-entrypoint.md` — 添加自包含快速操作参考
+
+**文件**：`docs/protocol-agent-entrypoint.md`
+
+核心改动：在推荐读取顺序后面增加「快速操作参考」节，包含：
+- A. 记录冲突（`conflict.detected`）的完整 curl 示例
+- B. 关闭冲突（`decision.accepted`）的完整 curl 示例（含如何拿到 conflict id）
+- C. 提出 patch（`patch.proposed`）和关闭 patch（`patch.applied`）的完整 curl 示例
+- 最小治理闭环验证脚本（5 步 bash，含注释）
+
+这样 agent 读完入口文件即可执行所有常见治理操作，不需要跳转到其他文档。
+
+#### ✅ `protocol-readiness-checkpoint.md` — 历史 checkpoint 更新
+
+**文件**：`docs/protocol-readiness-checkpoint.md`
+
+核心改动：
+- 顶部添加「读取提示」，指向 `protocol-agent-entrypoint.md` 作为主入口
+- 将「发现的风险和缺口」重构为「已解决的缺口（历史记录）」，每项标注 ✅ 和修复的轮次（Cycle 44–53）
+- 添加新节「当前仍存在的限制（需关注）」，包含三个真实未解决限制：governance index 不持久、.deepwork 本地落盘、合成进度不透明
+- 移除已过时的 git 状态清理建议（已不是当前问题）
+
+### 为什么这是方向正确的改动
+
+DeepWork 的协议文档不只是人类读的，而是 continuation agent 的操作面。如果 agent 需要扫描 4 个文件才能拿到一个合法的 `conflict.detected` curl 示例，它会更倾向于猜测字段或跳过结构化写入。入口文件自包含常见操作意味着：agent 在 `work-log.md` 之后读一个文件，就能直接执行，降低了「读对了但格式错」的风险。
+
+`protocol-readiness-checkpoint.md` 的改动把它从「状态分析」转变为「已解决缺口的历史记录」，明确告诉 agent 哪些问题已经不用担心，哪些限制是当前真实的。这减少了 agent 把已修复问题当作当前风险来解决的情况。
+
+### 验证状态
+
+`npm run build` 通过，12 条路由，无 TypeScript 错误。文档改动不影响代码编译。
+
+### 下一步建议
+
+1. **P0 — 使用真实 `.env.local` 跑完整 demo 路径**：按 `docs/demo-quickstart.md` 核对清单，确认合成成功率与归因显示。
+2. **P0 — 执行最小治理闭环验证脚本**：见 `docs/protocol-agent-entrypoint.md` 「最小治理闭环验证」节，用真实 room id 走完整 conflict→decision 闭环，确认 unresolvedConflicts 消失。
+3. **P0 — 执行 patch 闭环验证**：`patch.proposed(patchId=X)` → 确认 `snapshot.proposedPatches` 有 X → `patch.applied(patchId=X, linkedEventIds=[X])` → 确认 proposal 从 proposedPatches 消失。
+4. **P1 — 考虑 governance index 持久化**：当前 recent-100-events window 对 demo 足够，但如果想支持更长运行的 room，需要把 open conflict/patch 持久化到专用索引而不只靠 recent events。
+
+---
+
 ## 第五十二轮分析 — 2026/04/26
 
 ### 本轮扫描结论
