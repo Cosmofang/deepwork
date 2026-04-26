@@ -11,7 +11,11 @@ const ROLE_DATA = Object.fromEntries(
   Object.entries(ROLES).map(([k, v]) => [k, { label: v.label, color: v.color }])
 );
 
-function injectAttribution(html: string, mode: 'hover' | 'always' = 'hover'): string {
+function injectAttribution(
+  html: string,
+  mode: 'hover' | 'always' = 'hover',
+  roleIntentPreviews: Partial<Record<string, string>> = {}
+): string {
   const clearOutlineOnLeave = mode === 'hover' ? "this.style.outline = '2px solid transparent';" : '';
   const baseScript = `
 <style>
@@ -21,8 +25,9 @@ function injectAttribution(html: string, mode: 'hover' | 'always' = 'hover'): st
 <script>
 (function() {
   const ROLES = ${JSON.stringify(ROLE_DATA)};
+  const INTENTS = ${JSON.stringify(roleIntentPreviews)};
   const tip = document.createElement('div');
-  tip.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.92);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 20px;border-radius:999px;font-size:13px;pointer-events:none;transition:opacity 0.15s;opacity:0;z-index:9999;white-space:nowrap;font-family:-apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:0.01em;display:flex;align-items:center;gap:8px;';
+  tip.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.92);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:10px 18px;border-radius:16px;font-size:13px;pointer-events:none;transition:opacity 0.15s;opacity:0;z-index:9999;max-width:480px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:0.01em;';
   document.body.appendChild(tip);
   document.querySelectorAll('[data-source]').forEach(function(el) {
     el.addEventListener('mouseenter', function() {
@@ -31,7 +36,8 @@ function injectAttribution(html: string, mode: 'hover' | 'always' = 'hover'): st
       if (!r) return;
       this.style.outline = '2px solid ' + r.color + '60';
       this.style.outlineOffset = '4px';
-      tip.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:'+r.color+';display:inline-block;flex-shrink:0;"></span><span style="color:'+r.color+';font-weight:600;">'+r.label+'</span><span style="color:rgba(255,255,255,0.5);">贡献了这个区块</span>';
+      var preview = INTENTS[role] ? '<div style="font-size:11px;color:rgba(255,255,255,0.38);font-style:italic;margin-top:5px;padding-left:16px;line-height:1.4;">「' + INTENTS[role] + '」</div>' : '';
+      tip.innerHTML = '<div style="display:flex;align-items:center;gap:8px;"><span style="width:8px;height:8px;border-radius:50%;background:'+r.color+';display:inline-block;flex-shrink:0;"></span><span style="color:'+r.color+';font-weight:600;">'+r.label+'</span><span style="color:rgba(255,255,255,0.5);">贡献了这个区块</span></div>' + preview;
       tip.style.opacity = '1';
     });
     el.addEventListener('mouseleave', function() {
@@ -93,6 +99,7 @@ export default function ResultPage() {
   const [resetting, setResetting] = useState(false);
   const [recommendedActions, setRecommendedActions] = useState<DeepWorkRecommendedAction[]>([]);
   const [attributionMode, setAttributionMode] = useState<'hover' | 'always'>('always');
+  const [roleIntentPreviews, setRoleIntentPreviews] = useState<Partial<Record<string, string>>>({});
   const supabase = createClient();
 
   const activeResult = allResults.find(r => r.round === activeRound) ?? allResults[allResults.length - 1] ?? null;
@@ -147,6 +154,28 @@ export default function ResultPage() {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
+  }, [id]);
+
+  // Build roleId → representative intent text map for hover tooltip previews.
+  useEffect(() => {
+    supabase
+      .from('intents')
+      .select('content, participant:participants!inner(role)')
+      .eq('room_id', id)
+      .then(({ data }) => {
+        if (!data) return;
+        const previews: Partial<Record<string, string>> = {};
+        for (const intent of data as Array<{ content: string; participant: { role: string }[] }>) {
+          const role = intent.participant[0]?.role;
+          if (!role) continue;
+          if (!previews[role] || intent.content.length > previews[role]!.length) {
+            previews[role] = intent.content.length > 70
+              ? intent.content.slice(0, 70) + '…'
+              : intent.content;
+          }
+        }
+        setRoleIntentPreviews(previews);
+      });
   }, [id]);
 
   // Fetch protocol-level recommended actions from the workspace snapshot.
@@ -237,7 +266,7 @@ export default function ResultPage() {
         <div className="flex-1">
           <iframe
             key={activeResult.id + attributionMode}
-            srcDoc={injectAttribution(activeResult.html_content, attributionMode)}
+            srcDoc={injectAttribution(activeResult.html_content, attributionMode, roleIntentPreviews)}
             className="w-full h-full border-0"
             title="合成产物"
             sandbox="allow-scripts"

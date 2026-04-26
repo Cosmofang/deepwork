@@ -2,6 +2,45 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第四十六轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+Cycle 45 已提交。本轮针对 work-log P1 优先级：归因悬停提示增加意图预览。当前悬停只显示「X 贡献了这个区块」，观看者不知道具体是哪条意图决定了该区块。在演示的关键节点（讲解归因高亮时），无法直接向受众展示人→AI 的决策链路。
+
+### 本轮完成的改动
+
+#### ✅ 归因悬停工具提示增加意图预览文本
+
+**文件**：`src/app/room/[id]/result/page.tsx`
+
+**改动要点**：
+
+1. `injectAttribution` 函数签名增加第三参数：
+   ```ts
+   function injectAttribution(html, mode, roleIntentPreviews: Partial<Record<string, string>> = {})
+   ```
+
+2. 注入 `INTENTS` 常量到 iframe 脚本，悬停时显示两行卡片：
+   - 第一行：角色色点 + 角色名 + 「贡献了这个区块」
+   - 第二行（斜体，低对比度）：该角色最长意图文本的前 70 字符，以「...」引号包裹
+
+3. 工具提示样式从胶囊（`border-radius:999px`）改为圆角卡片（`border-radius:16px`，`max-width:480px`），支持多行展示。
+
+4. 新增 `roleIntentPreviews` state 和 useEffect：从 `intents` 表按角色分组，取每个角色最长的一条意图（≤70字截断），在结果页挂载后异步加载。
+
+5. iframe `srcDoc` 调用更新：传入 `roleIntentPreviews`。
+
+**演示效果**：悬停任意 section → 底部弹出卡片，既显示「设计师 贡献了这个区块」，又显示「「首屏需要传达产品的核心价值…」」，观众立刻理解意图→产物的完整链路。
+
+### 下一步优先级
+
+- **P0（4/29 之前）**：用真实 `.env.local` 跑完完整 demo 路径（`docs/demo-quickstart.md` 核对清单）
+- **P0（4/29 之前）**：跑 Section 7b 的 governance curl 闭环测试（conflict → decision → verify）
+- **P1**：synthesize route 末尾两次 `syncRoomStateToWorkspace` 合并为一次（当前约 10 次 Supabase 查询，可降至 5 次）
+
+---
+
 ## 第四十五轮分析 — 2026/04/26
 
 ### 本轮扫描结论
