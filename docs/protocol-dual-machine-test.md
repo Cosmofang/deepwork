@@ -89,9 +89,25 @@ Current code provides a first-class writer path: `POST /api/workspace/events`. U
 }
 ```
 
-The endpoint validates the event type and required semantic fields, appends the event to `events.ndjson`, refreshes `project.json` / `rooms/index.json` metadata, and returns the recorded event. Patch events must include a non-empty `summary` plus at least one of `linkedIntents`, `affectedSections`, or `affectedFiles`; this prevents agents from writing vague patch records that cannot guide another machine. The important product behavior is that the patch meaning becomes a structured event, not only a Git diff or chat message.
+The endpoint validates the event type and required semantic fields, appends the event to `events.ndjson`, refreshes `project.json` / `rooms/index.json` metadata, and returns the recorded event. Patch events must include a non-empty `summary` plus at least one of `linkedEventIds`, `linkedIntents`, `affectedSections`, or `affectedFiles`; this prevents agents from writing vague patch records that cannot guide another machine. The important product behavior is that the patch meaning becomes a structured event, not only a Git diff or chat message.
 
-Success condition: Machine A can read the patch record and explain what Machine B proposed and why without reading Machine B's chat transcript.
+After applying or accepting the proposed change, Machine B should record a closing event such as:
+
+```json
+{
+  "roomId": "<ROOM_ID>",
+  "event": {
+    "type": "patch.applied",
+    "summary": "Applied homepage positioning copy patch.",
+    "reason": "The proposal was reviewed and implemented in the shared project files.",
+    "linkedEventIds": ["<PATCH_PROPOSED_EVENT_ID_OR_PATCH_ID>"],
+    "affectedFiles": ["src/app/page.tsx", "README.md"],
+    "status": "applied"
+  }
+}
+```
+
+Success condition: Machine A can read the patch record and explain what Machine B proposed and why without reading Machine B's chat transcript. After the closing event is written, both machines should see that patch removed from `snapshot.proposedPatches` and from the `review-proposed-patches` count.
 
 ## Step 5: Optional Synthesis And Artifact Update
 
@@ -109,7 +125,7 @@ If the room already has a synthesis result and then receives additional intents,
 
 To close the loop, Machine B should record a `decision.accepted` event whose `decisionId` exactly matches the conflict's `conflictId`, and whose `value` states the accepted resolution. Both machines should refresh `GET /api/workspace?roomId=<ROOM_ID>` and verify that the resolved conflict is absent from `snapshot.unresolvedConflicts` and is no longer counted by the `resolve-open-conflicts` action. If several conflicts exist, the action may remain but its count and `linkedEventIds` should only refer to still-unresolved conflicts.
 
-For a patch test, Machine B should record a `patch.proposed` event. Both machines should then verify that `recommendedNextActions` contains a `p1` action with `id: "review-proposed-patches"`, `suggestedAction: "review_patch"`, and links back to the proposed patch through `linkedEventIds` or affected files/sections. If the proposal has a semantic `patchId`, `recommendedNextActions.linkedEventIds` should include both the generated event `id` and that `patchId`, giving another agent a human-readable close target without first parsing the raw event stream. The action should also expose `closeWith.field: "linkedEventIds"` and accepted values containing the generated `id` and/or `patchId`. To close the loop, record either `patch.applied` with `linkedEventIds` containing the proposal's generated `id` or `patchId`, or `decision.accepted` with `decisionId` equal to the generated `id` or `patchId`; after refresh, that proposal should disappear from `snapshot.proposedPatches` and the `review-proposed-patches` count should decrease.
+For a patch test, Machine B should record a `patch.proposed` event. Both machines should then verify that `recommendedNextActions` contains a `p1` action with `id: "review-proposed-patches"`, `suggestedAction: "review_patch"`, `governancePolicy.rule: "human_review_required"`, and links back to the proposed patch through `linkedEventIds` or affected files/sections. If the proposal has a semantic `patchId`, `recommendedNextActions.linkedEventIds` should include both the generated event `id` and that `patchId`, giving another agent a human-readable close target without first parsing the raw event stream. The action should also expose `closeWith.field: "linkedEventIds"` and accepted values containing the generated `id` and/or `patchId`. To close the loop, record either `patch.applied` with `linkedEventIds` containing the proposal's generated `id` or `patchId`, or `decision.accepted` with `decisionId` equal to the generated `id` or `patchId`; after refresh, that proposal should disappear from `snapshot.proposedPatches` and the `review-proposed-patches` count should decrease.
 
 For missing-role coverage, if the room has intents but not all canonical roles have joined, both machines should verify that `invite-missing-roles` remains a `p2` action and that role coverage is exposed through `actorScope`, not `affectedSections`. `actorScope.missingActorRoles` should list absent role IDs such as `designer` or `marketer`, while `actorScope.presentActorRoles` should list roles already represented in the room. This keeps actor governance separate from artifact section governance and prevents continuation agents from treating missing people as missing page sections.
 

@@ -72,7 +72,7 @@ Use this before or alongside a code, content, schema, or documentation change th
 }
 ```
 
-Patch events must include at least one of `linkedEventIds`, `linkedIntents`, `affectedSections`, or `affectedFiles`. This guard prevents vague agent messages from polluting the shared state. Use `linkedEventIds` to point to protocol events such as a prior `patch.proposed`; use `linkedIntents` only for intent IDs from room state or `intent.created` events.
+Patch events must include at least one of `patchId`, `linkedEventIds`, `linkedIntents`, `affectedSections`, or `affectedFiles`. This guard prevents vague agent messages from polluting the shared state. Use `linkedEventIds` to point to protocol events such as a prior `patch.proposed`; use `linkedIntents` only for intent IDs from room state or `intent.created` events. `patchId` is an optional stable alias for the patch proposal or closure target.
 
 A proposed patch stops being open when a later `patch.applied` or `decision.accepted` event links back to its event ID through `linkedEventIds` or `decisionId`. If the proposal carries a semantic `patchId`, that `patchId` is accepted as an alias for the generated event `id`; closing events may reference either value. This keeps `snapshot.proposedPatches` and the `review-proposed-patches` recommended action focused on still-unreviewed governance work instead of every patch ever proposed.
 
@@ -91,7 +91,7 @@ Use this when a proposed or directly applied change has actually been made in th
 }
 ```
 
-For auditability, an applied patch should ideally link to a prior proposed patch or intent. If none exists, `reason` and `affectedFiles` become mandatory in practice even if the current endpoint only enforces `summary` plus one semantic linkage field.
+For auditability, an applied patch should ideally link to a prior proposed patch or intent through `patchId`, `linkedEventIds`, or `linkedIntents`. A common closure shape is `{ "type": "patch.applied", "patchId": "<snapshot.proposedPatches[].id>", "affectedFiles": [...] }`. If none exists, `reason` and `affectedFiles` become mandatory in practice even if the current endpoint only enforces `summary` plus one semantic linkage field.
 
 ### `artifact.updated`
 
@@ -126,6 +126,8 @@ Use this when a direction becomes shared state rather than merely a suggestion.
 ```
 
 A later agent should treat accepted decisions as stronger than raw intents unless a newer decision supersedes them.
+
+When a decision resolves a `conflict.detected` event, its `decisionId` must be a non-empty string exactly matching the conflict's `conflictId`. The external writer validates `decisionId` and `title` when they are provided, so an empty string cannot accidentally create an uncloseable or misleading governance event.
 
 External agent writers do not need to invent event IDs. `POST /api/workspace/events` assigns a stable `id` to each accepted semantic event when one is not provided. Internal writers that use `syncRoomStateToWorkspace()` follow the same identity rule, so room events created by joins, intents, synthesis, artifacts, and conflicts can also be linked from snapshots and recommended actions. For `conflict.detected`, both writer paths assign `conflictId` from that event ID when `conflictId` is omitted, so every recorded conflict has a closeable identity. Agents may still provide their own deterministic `conflictId` when they need cross-run reproducibility.
 
@@ -202,7 +204,7 @@ Example resolution event:
 
 `governancePolicy` is the permission and review surface for recommended actions. It records whether an action may be handled by an agent event writer or whether human/team review is required before closure. Current conflict, patch-review, and stale-synthesis actions use `rule: "human_review_required"` because resolving incompatible intent, accepting a patch, or regenerating the shared artifact changes project state. Agents may still propose options, draft events, or surface the close path, but they should not treat `closeWith` or `suggestedAction` as permission to auto-close governance work unless the policy and actor trust level allow it.
 
-For internal room events, the same identity rule applies to semantic events written through `syncRoomStateToWorkspace()`. A reader should therefore expect `synthesis.completed`, `artifact.updated`, and room-flow `intent.created` events to carry stable IDs just like events written by `POST /api/workspace/events`. This keeps `latestArtifacts[].id`, `decisions[].id`, `unresolvedConflicts[].id`, and `recommendedNextActions[].linkedEventIds` in the same identity space instead of mixing protocol IDs with timestamps.
+For internal room events, the same identity rule applies to semantic events written through `syncRoomStateToWorkspace()`. A reader should therefore expect `synthesis.completed`, `artifact.updated`, and room-flow `intent.created` events to carry stable IDs just like events written by `POST /api/workspace/events`. Internal `patch.proposed` and `patch.applied` room-state events should preserve `affectedSections`, `affectedFiles`, `linkedEventIds`, `linkedIntents`, optional `patchId`, and `reason`, so a patch proposed or applied inside the app has the same governance context as one written through the external writer endpoint. This keeps `latestArtifacts[].id`, `decisions[].id`, `unresolvedConflicts[].id`, and `recommendedNextActions[].linkedEventIds` in the same identity space instead of mixing protocol IDs with timestamps.
 
 ## Reader Resilience
 

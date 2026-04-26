@@ -375,6 +375,7 @@ function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWork
         linkedEventIds: event.linkedEventIds,
         linkedIntents: event.linkedIntents,
         affectedSections: event.affectedSections,
+        affectedFiles: event.affectedFiles,
         patchId: event.patchId,
         reason: event.reason,
       };
@@ -427,8 +428,10 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
         const linkedEventIds = 'linkedEventIds' in event ? event.linkedEventIds : undefined;
         const linkedIntents = 'linkedIntents' in event ? event.linkedIntents : undefined;
         const decisionId = 'decisionId' in event ? event.decisionId : undefined;
+        const patchId = 'patchId' in event ? event.patchId : undefined;
         return Boolean(
           (decisionId && proposedPatchIds.includes(decisionId)) ||
+          (patchId && proposedPatchIds.includes(patchId)) ||
           linkedEventIds?.some(id => proposedPatchIds.includes(id)) ||
           linkedIntents?.some(id => proposedPatchIds.includes(id))
         );

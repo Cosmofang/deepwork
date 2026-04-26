@@ -287,7 +287,7 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
       },
       {
         eventType: 'patch.proposed',
-        description: 'Agent proposes a content or code change. At least one of affectedSections, affectedFiles, linkedEventIds, or linkedIntents is required.',
+        description: 'Agent proposes a content or code change. At least one of affectedSections, affectedFiles, linkedEventIds, or linkedIntents is required. Use patchId when you want a deterministic alias that another machine can later close.',
         body: {
           roomId: 'ROOM_ID',
           event: {
@@ -296,6 +296,7 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
             affectedSections: ['cta'],
             linkedIntents: ['<intent-id-from-snapshot.recentIntents[].id>'],
             reason: 'Aligns with copywriter intent: "Start your free trial" converts better than "Sign up"',
+            patchId: 'cta-copy-free-trial',
             actorId: 'agent-machine-b',
           },
         },
@@ -347,7 +348,7 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
     examplePayloads: [
       {
         eventType: 'patch.applied',
-        description: 'Mark a proposed patch as applied after human review. Use patchId from snapshot.proposedPatches[].id.',
+        description: 'Mark a proposed patch as applied after human review. Use a value from recommendedNextActions[].closeWith.acceptedValues or snapshot.proposedPatches[].id in linkedEventIds so the proposal closes.',
         body: {
           roomId: 'ROOM_ID',
           event: {
@@ -355,13 +356,14 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
             summary: 'CTA button copy patch applied after human review',
             status: 'applied',
             affectedSections: ['cta'],
-            patchId: '<patch-event-id-from-snapshot.proposedPatches[].id>',
+            linkedEventIds: ['<patch-event-id-or-patchId-from-closeWith.acceptedValues>'],
+            actorId: 'agent-machine-b',
           },
         },
       },
       {
         eventType: 'decision.accepted',
-        description: 'Formally accept the decision implied by a patch without recording a file-level change.',
+        description: 'Formally accept the decision implied by a patch without recording a file-level change. Set decisionId to a value from recommendedNextActions[].closeWith.acceptedValues or snapshot.proposedPatches[].id.',
         body: {
           roomId: 'ROOM_ID',
           event: {
@@ -370,6 +372,7 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
             decisionId: '<patch-event-id-from-snapshot.proposedPatches[].id>',
             title: 'CTA copy change approved',
             value: 'Apply the proposed CTA copy change as specified in the patch',
+            actorId: 'agent-machine-b',
           },
         },
       },

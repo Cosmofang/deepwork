@@ -148,8 +148,9 @@ function hasSemanticLinkage(event: {
   linkedIntents?: string[];
   affectedSections?: string[];
   affectedFiles?: string[];
+  patchId?: string;
 }) {
-  return Boolean(event.linkedEventIds?.length || event.linkedIntents?.length || event.affectedSections?.length || event.affectedFiles?.length);
+  return Boolean(event.patchId || event.linkedEventIds?.length || event.linkedIntents?.length || event.affectedSections?.length || event.affectedFiles?.length);
 }
 
 function stableEventId(type: DeepWorkEventType) {
@@ -227,13 +228,13 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
       if (!['proposed', 'applied', 'rejected', 'superseded'].includes(status)) {
         return errorResponse('event.status must be proposed, applied, rejected, or superseded');
       }
-      if (!hasSemanticLinkage({ linkedEventIds, linkedIntents, affectedSections, affectedFiles })) {
-        return errorResponse('patch events must include at least one of linkedEventIds, linkedIntents, affectedSections, or affectedFiles');
-      }
       const reason = assertOptionalString(event.reason, 'event.reason');
       if (isErrorResult(reason)) return reason;
       const patchId = assertOptionalString(event.patchId, 'event.patchId');
       if (isErrorResult(patchId)) return patchId;
+      if (!hasSemanticLinkage({ linkedEventIds, linkedIntents, affectedSections, affectedFiles, patchId })) {
+        return errorResponse('patch events must include at least one of patchId, linkedEventIds, linkedIntents, affectedSections, or affectedFiles');
+      }
       return {
         ...base,
         type: eventInput.type,

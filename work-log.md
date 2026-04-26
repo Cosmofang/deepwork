@@ -2,6 +2,123 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第五十轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮接续第四十九轮，重点检查 `src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/events/route.ts`、`docs/protocol-event-contract.md` 与 `docs/protocol-dual-machine-test.md`。当前协议已经具备 `actionCapabilities`、`closeWith`、`governancePolicy` 与 reader 坏行容错，说明 DeepWork 正在从 demo UI 走向 agent-readable shared project state。发现的主要缺口是 patch 关闭语义仍不够一致：文档与 action capability 示例建议 `patch.applied` 可以用 `patchId` 指向 `snapshot.proposedPatches[].id`，但 writer 校验与 snapshot 关闭逻辑主要依赖 `linkedEventIds` / `decisionId`，导致外部 agent 可能按示例写入 `patchId` 后，`review-proposed-patches` 仍认为该 patch 未关闭。
+
+### 本轮完成的改动
+
+#### ✅ patch 事件正式支持 `patchId` 关闭别名
+
+**文件**：`src/types/deepwork-protocol.ts`、`src/app/api/workspace/events/route.ts`、`src/lib/room-state.ts`
+
+- 在 `DeepWorkPatchEvent` 中加入可选 `patchId`
+- 外部 writer 对 `patch.proposed` / `patch.applied` 读取并校验 `patchId`
+- patch semantic linkage 校验现在接受 `patchId`，避免按 action capability 示例只带 `patchId` 的 `patch.applied` 被拒绝
+- `buildDeepWorkSnapshot()` 判断 proposed patch 是否已关闭时，同时接受 `decisionId`、`linkedEventIds`、`linkedIntents` 和 `patchId`
+- 内部 `toSemanticEventPayload()` 继续保留 `affectedFiles` 与 `patchId`，让内部/外部 writer 语义一致
+
+#### ✅ 协议文档同步 patch 关闭规则
+
+**文件**：`docs/protocol-event-contract.md`
+
+- 将 patch 事件 linkage 要求更新为 `patchId` / `linkedEventIds` / `linkedIntents` / `affectedSections` / `affectedFiles` 五选一
+- 明确 `patchId` 是 patch proposal 或 closure target 的稳定别名
+- 在 `patch.applied` 小节补充常见关闭形态：`patchId: "<snapshot.proposedPatches[].id>"`
+
+### 为什么这是方向正确的改动
+
+`recommendedNextActions` 的价值不只是告诉 agent “review patch”，而是让另一个 agent 能用结构化字段完成闭环。如果 action capability 给出的合法示例不能真正关闭 snapshot 中的 proposed patch，协议就会出现“看似可执行、实际不收敛”的问题。本轮改动让 patch governance 与 conflict governance 一样具有明确 identity：提案有 ID，关闭事件引用这个 ID，reader 可以验证 unresolved / open 状态消失。
+
+### 验证状态
+
+已静态复核 TypeScript 数据流：`patchId` 从类型定义进入 external writer 校验与返回事件，再进入 snapshot proposed patch 关闭判断。仍需运行 `./node_modules/.bin/tsc --noEmit` 或 `npm run build` 做完整验证；若构建失败，应优先检查 `DeepWorkPatchEvent` 新字段与现有 union 类型交互。
+
+### 下一步建议
+
+1. **P0 — 运行 TypeScript / Next.js 构建验证**：确认 patchId 协议改动可编译。
+2. **P1 — 最小 patch 闭环测试**：写入 `patch.proposed`，读取 `snapshot.proposedPatches[0].id`，再写入只带 `patchId` 的 `patch.applied`，确认 `review-proposed-patches` 消失。
+3. **P1 — 文档示例回归**：按 `DEEPWORK_ACTION_CAPABILITIES.review_patch.examplePayloads` 构造请求，确认示例仍是 writer endpoint 可接受的真实 payload。
+
+---
+
+## 第四十九轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮在第四十八轮之后继续检查协议 reader 的可靠性，重点阅读 `README.md`、`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md`、`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/events/route.ts` 和 `src/app/api/workspace/route.ts`。当前代码已经把 workspace reader 扩展到返回 `actionCapabilities`，并把 recent event 窗口提升到 100 行；这让 agent-readable planning surface 更完整。但仍有一个可靠性缺口：`readRecentEvents()` 如果最近 100 行中任何一行 malformed，会因为链式 `JSON.parse` 失败而丢弃全部 recent events，从而让 proposed patches、unresolved conflicts 和 recommended actions 在另一台机器上突然消失。
+
+### 本轮完成的改动
+
+#### ✅ workspace reader 对单条坏事件行容错
+
+**文件**：`src/app/api/workspace/route.ts`
+
+- 将 recent events 解析改为逐行解析最近 100 行
+- 单条坏行只会被跳过，不再导致整个 recent event stream 返回空数组
+- 保留文件不存在或整体不可读时返回空数组的旧行为
+- 注释明确：这是为了保持 workspace readability，不是放宽 writer 端校验
+
+#### ✅ 协议文档补充 Reader Resilience
+
+**文件**：`docs/protocol-event-contract.md`
+
+- 新增 `Reader Resilience` 小节
+- 明确 `GET /api/workspace` 应把 `events.ndjson` 视为 append-only operational data，而不是一个脆弱的整体 JSON blob
+- 明确坏行可跳过，但 writer 仍必须一行一个合法 JSON object，写入端仍应严格校验
+
+### 为什么这是方向正确的改动
+
+DeepWork 要成为跨机器、跨 agent 可读的共享项目状态协议，reader 不能因为一条局部损坏的事件就失去全部治理上下文。这个改动让事件流更接近可运维的共享状态层：局部坏数据不会抹掉其他 actor 已经记录的决策、补丁、冲突和下一步行动。
+
+### 验证状态
+
+已静态复核 `readRecentEvents()` 控制流。还需要运行 `npm run build` 验证当前工作树的完整 TypeScript / Next.js 编译；若构建失败，应优先判断是否来自本轮 reader 改动，还是来自并行/前序改动。
+
+### 下一步优先级
+
+- **P0**：运行 `npm run build`，确认近期改动整体可编译。
+- **P1**：构造含“一条合法事件 + 一条坏行 + 一条合法事件”的 `events.ndjson`，确认 `GET /api/workspace` 返回两条合法 recent events，并且 recommended action 没有被清空。
+- **P1**：继续执行 governance curl 闭环测试：`conflict.detected` → recommended P0 → `decision.accepted` → unresolved 消失。
+
+---
+
+## 第四十八轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮接续第四十七轮，重点复核 `src/lib/room-state.ts`、`src/types/deepwork-protocol.ts`、`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md` 和当前 git diff。项目主线已经进一步清晰：DeepWork 正在把 `recommendedNextActions` 从提示文案升级为可执行的协议层 planning surface，并通过 `actionCapabilities`、`governancePolicy`、`closeWith` 等字段降低跨 agent 接手成本。
+
+本轮发现并确认一个小的协议一致性修复：`RoomStateEvent` 类型已经支持 `affectedFiles`，但 patch 事件转换为 semantic event 时必须把该字段带入 `DeepWorkPatchEvent`，否则内部流程写出的 `patch.proposed` / `patch.applied` 会丢失文件级影响范围，外部 agent 只能看到 affected sections，无法直接定位代码或文档变更。
+
+### 本轮完成的改动
+
+#### ✅ 内部 patch event 保留 `affectedFiles`
+
+**文件**：`src/lib/room-state.ts`
+
+- 在 `toSemanticEventPayload()` 的 `patch.proposed` / `patch.applied` 分支中保留 `affectedFiles: event.affectedFiles`
+- 让内部 room sync 写出的 patch semantic events 与外部 `POST /api/workspace/events` writer 的字段语义保持一致
+- 对 `review-proposed-patches`、`actionCapabilities` 和双机器测试更友好：Machine B 可以从 shared state 直接知道 patch 影响哪些文件，而不必解析聊天记录或 git diff
+
+### 为什么这是方向正确的改动
+
+DeepWork 的协议价值在于把“为什么改、影响哪里、如何治理”变成共享状态。`affectedFiles` 是从意图/治理事件连接到真实项目文件的关键桥梁。如果内部事件丢失这个字段，协议就会出现两套行为：外部 agent 写入的 patch 可定位文件，内部流程写入的 patch 不可定位文件。本轮修复让内外部 writer 更一致，也让 shared project state 更适合作为跨机器协作的事实源。
+
+### 验证状态
+
+已运行 `./node_modules/.bin/tsc --noEmit`，无 TypeScript 输出，说明当前类型检查通过。尝试运行 `npm run build`，但本次自动环境在 60 秒后超时，未能得到完整 Next.js build 结果；不能宣称 build 通过。当前改动很小，已通过静态类型检查，但仍建议下一轮或人工在本机继续跑完整 build。
+
+### 下一步建议
+
+1. **P0 — 完整 `npm run build`**：确认第四十七/四十八轮的 synthesize 与 protocol 改动在 Next.js 构建中全部通过。
+2. **P0 — governance curl 闭环测试**：按 `docs/demo-quickstart.md` Section 7b 跑 `conflict.detected → recommended action → decision.accepted → verify`。
+3. **P1 — patch 文件归因测试**：写入一个带 `affectedFiles` 的内部/外部 patch event，确认 `snapshot.proposedPatches`、`recommendedNextActions.affectedFiles` 和 `actionCapabilities` 能被另一个 agent 直接使用。
+
+---
+
 ## 第四十七轮分析 — 2026/04/26
 
 ### 本轮扫描结论
