@@ -2,6 +2,40 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第三十九轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮复查了 `README.md`、最新 `work-log.md`、`conversation-log.md`、`docs/demo-quickstart.md`、`docs/protocol-agent-entrypoint.md`、`docs/protocol-dual-machine-test.md`、`docs/protocol-event-contract.md`、`src/app/api/workspace/route.ts`、`src/app/api/workspace/events/route.ts`、`src/lib/room-state.ts`、`src/types/deepwork-protocol.ts` 与 `supabase/schema.sql`。项目主线仍然清楚：landing-page demo 只是 wedge，当前真正资产是 agent-readable shared project state、semantic event stream、recommended governance actions、attribution 和可关闭的 governance path。
+
+本轮发现一个高杠杆文档错误：Cycle 38 新增的 `docs/demo-quickstart.md` 是演示前最可能被真人照着执行的文档，但其中双机器 curl 示例仍使用旧的 writer 请求形态，把 `type/summary/sections` 直接放在 body 顶层；当前 `POST /api/workspace/events` 实际要求 `{ roomId, event: { ... } }`。同时关闭冲突的 `decision.accepted` 示例没有带 `decisionId`，无法真正关闭 `unresolvedConflicts` 或让 `resolve-open-conflicts` action 消失。表检查文案也写成“四张表”，但实际期望列表是五张表。
+
+### 本轮完成的改动
+
+#### ✅ 修正 demo quickstart 的协议 curl 最小验证路径
+
+**文件**：`docs/demo-quickstart.md`
+
+- Supabase 表检查从“四张表”修正为“五张表”，并按实际 schema 列出 `intents, participants, room_sections, rooms, synthesis_results`
+- 缺表提示从只参考 `supabase/migrations/` 补充为参考 `supabase/schema.sql` 与 migrations
+- `POST /api/workspace/events` 示例改为当前 writer endpoint 接受的 `{ roomId, event: { ... } }` 结构
+- 在 conflict 写入后用 `jq -r '.snapshot.unresolvedConflicts[0].id'` 取 `CONFLICT_ID`
+- `decision.accepted` 示例补齐 `summary` 与 `decisionId: "$CONFLICT_ID"`，使该 curl 路径能实际关闭冲突，而不只是写入一个普通决策
+
+### 为什么这是方向正确的改动
+
+Quickstart 是演示日前最后一公里文档。如果双机器治理示例照抄后返回 `event is required`，或写入 decision 后 P0 action 不消失，评审前的协议信心会直接受损。本轮没有扩大产品范围，而是让“冲突 → recommended action → decision.accepted → unresolved 消失”的最小闭环与真实代码对齐。这正好服务 DeepWork 的核心定位：共享状态不是私有聊天推理，而是可被下一台机器用结构化事件读取和收敛的协作层。
+
+### 验证状态
+
+本轮为 Markdown 文档改动，不影响 Next.js 编译。已静态对照 `src/app/api/workspace/events/route.ts` 验证 writer body 必须包含 `event`，且 `decision.accepted` 需要 `summary` 与 `value`，`decisionId` 是关闭 conflict 的关键字段。已对照 `src/lib/room-state.ts` 验证 `unresolvedConflicts` 的 `id` 来自 `conflictId || eventIdentity(event)`，`decision.accepted.decisionId` 匹配后会从 unresolved 与 P0 recommended action 中移除。未执行真实 curl，因为当前自动环境没有运行中的 Next.js 服务、Supabase 数据库和真实 `.env.local`。
+
+### 下一步建议
+
+1. **P0 — 按修正后的 `docs/demo-quickstart.md` 做真实端到端演练**：尤其验证第 7 节 conflict curl、`CONFLICT_ID` 提取、`decision.accepted` 关闭后 P0 action 消失。
+2. **P0 — 合成质量验证**：用真实 Anthropic key 跑一次 6 角色合成，检查 attribution 常亮、整体板块、失败提示和 30–90 秒等待文案。
+3. **P1 — 考虑给 writer endpoint 增加兼容错误提示**：如果用户把 `type` 放在顶层，可返回更明确的 “wrap event fields under event” 提示，降低手写 curl 出错率。
+
 ---
 
 ## 第三十八轮分析 — 2026/04/26

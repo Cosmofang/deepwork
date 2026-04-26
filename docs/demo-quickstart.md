@@ -33,16 +33,16 @@ npm run dev
 
 ## 2. Supabase 表检查（1 分钟）
 
-在 Supabase Dashboard → SQL Editor 执行，确认四张表存在：
+在 Supabase Dashboard → SQL Editor 执行，确认五张表存在：
 
 ```sql
 select table_name from information_schema.tables
 where table_schema = 'public'
 order by table_name;
--- 期望：intents, participants, rooms, synthesis_results, room_sections
+-- 期望：intents, participants, room_sections, rooms, synthesis_results
 ```
 
-如果缺表，参考仓库根目录 `supabase/migrations/` 目录（或联系数据库负责人）。
+如果缺表，参考仓库根目录 `supabase/schema.sql` 与 `supabase/migrations/` 目录（或联系数据库负责人）。
 
 ---
 
@@ -134,17 +134,18 @@ curl -s "$BASE/api/workspace?roomId=$ROOM" | jq '.snapshot.recommendedNextAction
 # 写入 conflict.detected
 curl -s -X POST "$BASE/api/workspace/events" \
   -H "Content-Type: application/json" \
-  -d '{"roomId":"'$ROOM'","type":"conflict.detected","summary":"设计师和文案在首屏文案上有冲突","sections":["hero"],"actorIds":[]}'
+  -d '{"roomId":"'$ROOM'","event":{"type":"conflict.detected","summary":"设计师和文案在首屏文案上有冲突","sections":["hero"],"actorIds":[]}}'
 
-# 再次读取，确认 P0 action 出现
+# 再次读取，确认 P0 action 出现，并复制 unresolved conflict 的 id
+CONFLICT_ID=$(curl -s "$BASE/api/workspace?roomId=$ROOM" | jq -r '.snapshot.unresolvedConflicts[0].id')
 curl -s "$BASE/api/workspace?roomId=$ROOM" | jq '.snapshot.unresolvedConflicts, .snapshot.recommendedNextActions[] | select(.priority=="p0")'
 
 # 写入 decision.accepted 关闭冲突
 curl -s -X POST "$BASE/api/workspace/events" \
   -H "Content-Type: application/json" \
-  -d '{"roomId":"'$ROOM'","type":"decision.accepted","title":"首屏文案冲突解决","value":"采用文案版本，设计师调整排版"}'
+  -d '{"roomId":"'$ROOM'","event":{"type":"decision.accepted","summary":"首屏文案冲突解决","decisionId":"'$CONFLICT_ID'","title":"首屏文案冲突解决","value":"采用文案版本，设计师调整排版"}}'
 ```
 
 ---
 
-*最后更新：Cycle 38 — 2026/04/26*
+*最后更新：Cycle 39 — 2026/04/26*
