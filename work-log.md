@@ -2,6 +2,51 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第五十四轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+本轮扫描范围：`src/app/page.tsx`（主页/房间创建）、`src/lib/roles.ts`（角色与演示意图）、`src/app/api/demo/populate/route.ts`（演示填充路由）、`src/lib/sections.ts`（板块定义）、`src/app/room/[id]/result/page.tsx`（合成结果页）。
+
+发现两个高影响问题：
+
+1. **合成模型选择**：`src/app/api/synthesize/route.ts` 使用 `claude-opus-4-7`，合成耗时可达 60-90 秒，逼近 90s AbortController 超时上限，是演示可靠性的主要风险点（`protocol-readiness-checkpoint.md` 已标注此限制）。切换到 `claude-sonnet-4-6` 可将合成时间降至约 20-40 秒，显著减少超时概率。
+
+2. **开发者演示意图暴露内部实现细节**：`src/lib/roles.ts` 中程序员角色的演示意图包含 `Claude claude-opus-4-7 负责合成，延迟 <2s`——将内部模型名写入演示内容不专业，且"延迟 <2s"是严重错误的技术描述（实际合成需要 30-90 秒）。此内容会出现在合成 HTML 的技术架构板块中，演示时可见。
+
+### 本轮完成的改动
+
+#### ✅ `src/app/api/synthesize/route.ts` — 合成模型切换为 claude-sonnet-4-6
+
+**改动**：`model: 'claude-opus-4-7'` → `model: 'claude-sonnet-4-6'`
+
+演示可靠性提升：合成预计从 60-90s 降至 20-40s，减少超时概率，改善演示现场体验。
+
+#### ✅ `src/lib/roles.ts` — 修复程序员演示意图
+
+**改动**：移除 `Claude claude-opus-4-7 负责合成，延迟 <2s`，替换为 `Claude AI 负责多角色意图合成，数据端对端加密传输`
+
+修复两个问题：① 不再将内部模型名暴露到演示页面 HTML 中；② 移除 "<2s 延迟" 这一可在演示现场被验伪的错误技术描述。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误，编译通过。
+
+### 当前已知限制（未改动）
+
+- governance index 只归约最近 100 条 NDJSON 事件，不适合长期运行房间
+- `.deepwork/` 文件本地单机落盘，双机器测试需共享 HTTP endpoint
+- 合成超时 90s，无进度暴露；已改用更快模型，但无流式进度仍是演示风险点
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（`docs/demo-quickstart.md` 清单）
+- **P0**：用真实 roomId 执行 `protocol-agent-entrypoint.md` 中的最小治理闭环验证脚本
+- **P1**：合成进度暴露（SSE 或轮询），消除演示现场 spinner 等待不确定性
+- **P1**：governance index 持久化，超过 100 条 NDJSON 事件后不丢失开放冲突和 patch
+
+---
+
 ## 第五十三轮分析 — 2026/04/26
 
 ### 本轮扫描结论

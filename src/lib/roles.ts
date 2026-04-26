@@ -29,7 +29,7 @@ export const ROLES: Record<RoleId, {
     color: '#22C55E',
     typical: '要有 API 文档入口，技术参数清晰',
     demoIntents: [
-      { section: '功能亮点', content: '需要一个「技术架构」区块：Supabase Realtime 驱动实时协作，Claude claude-opus-4-7 负责合成，延迟 <2s' },
+      { section: '功能亮点', content: '需要一个「技术架构」区块：Supabase Realtime 驱动实时协作，Claude AI 负责多角色意图合成，数据端对端加密传输' },
       { section: 'FAQ', content: 'FAQ 里必须回答「数据安全吗？」和「支持多少人同时在线？」这两个问题' },
     ],
   },
