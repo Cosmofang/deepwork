@@ -221,12 +221,16 @@ ${intentLines}
       const now = new Date().toISOString();
       await Promise.all(
         unresolved.map((desc, i) => {
+          const conflictId = `synth-r${round}-c${i}`;
           const conflictEvent = {
+            id: conflictId,
             type: 'conflict.detected',
             projectId: 'deepwork',
             roomId: normalizedRoomId,
             summary: desc,
-            conflictId: `synth-r${round}-c${i}`,
+            conflictId,
+            sections: [],
+            actorIds: [],
             recordedAt: now,
           };
           return fs.appendFile(eventsPath, `${JSON.stringify(conflictEvent)}\n`, 'utf8');

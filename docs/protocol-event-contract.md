@@ -31,7 +31,7 @@ All semantic events should include these fields after validation or normalizatio
 }
 ```
 
-`actorId`, `participantId`, `participantName`, and `role` should be included whenever the writer knows them. Agent writers should prefer stable IDs such as `agent:openclaw:<machine-name>` or `agent:claude:<machine-name>` rather than anonymous labels.
+`actorId`, `participantId`, `participantName`, and `role` should be included whenever the writer knows them. Agent writers should prefer stable IDs such as `agent:openclaw:<machine-name>` or `agent:claude:<machine-name>` rather than anonymous labels. The external writer normalizes known actor identity by mirroring a provided `actorId` or `participantId` onto both fields, so downstream readers can use either protocol-native `actorId` or legacy room-oriented `participantId` without losing attribution.
 
 ## Supported Event Types
 
@@ -72,7 +72,9 @@ Use this before or alongside a code, content, schema, or documentation change th
 }
 ```
 
-Patch events must include at least one of `linkedIntents`, `affectedSections`, or `affectedFiles`. This guard prevents vague agent messages from polluting the shared state.
+Patch events must include at least one of `linkedEventIds`, `linkedIntents`, `affectedSections`, or `affectedFiles`. This guard prevents vague agent messages from polluting the shared state. Use `linkedEventIds` to point to protocol events such as a prior `patch.proposed`; use `linkedIntents` only for intent IDs from room state or `intent.created` events.
+
+A proposed patch stops being open when a later `patch.applied` or `decision.accepted` event links back to its event ID through `linkedEventIds` or `decisionId`. If the proposal carries a semantic `patchId`, that `patchId` is accepted as an alias for the generated event `id`; closing events may reference either value. This keeps `snapshot.proposedPatches` and the `review-proposed-patches` recommended action focused on still-unreviewed governance work instead of every patch ever proposed.
 
 ### `patch.applied`
 
@@ -125,6 +127,8 @@ Use this when a direction becomes shared state rather than merely a suggestion.
 
 A later agent should treat accepted decisions as stronger than raw intents unless a newer decision supersedes them.
 
+External agent writers do not need to invent event IDs. `POST /api/workspace/events` assigns a stable `id` to each accepted semantic event when one is not provided. Internal writers that use `syncRoomStateToWorkspace()` follow the same identity rule, so room events created by joins, intents, synthesis, artifacts, and conflicts can also be linked from snapshots and recommended actions. For `conflict.detected`, both writer paths assign `conflictId` from that event ID when `conflictId` is omitted, so every recorded conflict has a closeable identity. Agents may still provide their own deterministic `conflictId` when they need cross-run reproducibility.
+
 ### `conflict.detected`
 
 Use this when two or more requirements cannot be merged silently.
@@ -138,7 +142,7 @@ Use this when two or more requirements cannot be merged silently.
 }
 ```
 
-The system should expose conflicts instead of hiding them in generated artifacts. Conflict events are governance hooks.
+The system should expose conflicts instead of hiding them in generated artifacts. Conflict events are governance hooks. If a synthesis-origin conflict only has a natural-language description and cannot yet identify affected sections or actors, writers should still include `sections: []` and `actorIds: []` to keep the event shape consistent with the external writer contract.
 
 ### `summary.updated`
 
@@ -176,6 +180,8 @@ The endpoint normalizes `projectId`, `roomId`, and `recordedAt`, appends one JSO
 
 `GET /api/workspace?roomId=<ROOM_ID>` returns a protocol-level snapshot built from room state plus recent semantic events. Recent patch events appear in `snapshot.proposedPatches`. Accepted decisions appear in `snapshot.decisions`. Artifact events appear in `snapshot.latestArtifacts`. Conflict events appear in `snapshot.unresolvedConflicts` only while they are still unresolved.
 
+The reader currently loads the latest 100 parseable lines from `events.ndjson` for governance derivation. This keeps normal hackathon and dual-machine tests from losing open conflicts or proposed patches after a short burst of joins, intents, artifact updates, and decisions, while still bounding reader cost. Until DeepWork adds durable indexed governance state, long-running rooms should keep closure events close to the proposal or conflict they close, or periodically summarize/archive older resolved events.
+
 Conflict resolution is identity-based. A `conflict.detected` event should include a stable `conflictId` whenever possible. To mark that conflict resolved, write a `decision.accepted` event whose `decisionId` equals the conflict's `conflictId`, and whose `value` records the accepted human or team decision. After that event appears in the recent event stream, the conflict should disappear from `snapshot.unresolvedConflicts` and the `resolve-open-conflicts` recommended action should no longer count it.
 
 Example resolution event:
@@ -190,9 +196,17 @@ Example resolution event:
 }
 ```
 
-`snapshot.recommendedNextActions` is intentionally structured rather than plain text. Each action includes `id`, `priority`, `summary`, `reason`, optional `suggestedAction`, and optional protocol hints such as `eventTypes`, `affectedSections`, `affectedFiles`, and `linkedEventIds`. This lets another agent distinguish urgent governance blockers from lower-priority demo completeness suggestions, and lets it choose the correct next event to write without parsing prose.
+`snapshot.recommendedNextActions` is intentionally structured rather than plain text. Each action includes `id`, `priority`, `summary`, `reason`, optional `suggestedAction`, and optional protocol hints such as `eventTypes`, `affectedSections`, `affectedFiles`, `linkedEventIds`, `closeWith`, and `governancePolicy`. This lets another agent distinguish urgent governance blockers from lower-priority demo completeness suggestions, and lets it choose the correct next event to write without parsing prose. For `resolve-open-conflicts`, `closeWith` points to `decision.accepted.decisionId` values that can close the currently unresolved conflicts. For `review-proposed-patches`, `linkedEventIds` includes both generated proposal event IDs and semantic `patchId` aliases when present, and `closeWith` points to `patch.applied.linkedEventIds` values that can close those proposals. A continuation agent can therefore govern a proposal by using either machine-stable identity, while the human-readable `note` can explain accepted alternatives such as closing by `decision.accepted.decisionId`.
 
-This means the first dual-machine test should verify not only that `events.ndjson` receives a line, but also that the workspace reader translates that line into the correct snapshot field and the correct structured recommended action when action is needed.
+`governancePolicy` is the permission and review surface for recommended actions. It records whether an action may be handled by an agent event writer or whether human/team review is required before closure. Current conflict and patch-review actions use `rule: "human_review_required"` because resolving incompatible intent or accepting a patch changes shared project state. Agents may still propose options, draft events, or surface the close path, but they should not treat `closeWith` as permission to auto-close governance work unless the policy and actor trust level allow it.
+
+For internal room events, the same identity rule applies to semantic events written through `syncRoomStateToWorkspace()`. A reader should therefore expect `synthesis.completed`, `artifact.updated`, and room-flow `intent.created` events to carry stable IDs just like events written by `POST /api/workspace/events`. This keeps `latestArtifacts[].id`, `decisions[].id`, `unresolvedConflicts[].id`, and `recommendedNextActions[].linkedEventIds` in the same identity space instead of mixing protocol IDs with timestamps.
+
+## Reader Resilience
+
+`GET /api/workspace?roomId=<ROOM_ID>` should treat the event stream as append-only operational data, not as a single fragile JSON blob. If one recent `events.ndjson` line is malformed because an append was interrupted or a local file was hand-edited during a test, the reader should skip that line and continue returning the parseable recent events, snapshot, project key, and recommended actions.
+
+This is not permission to tolerate invalid writers. Writers should still emit one valid JSON object per line, and validation failures should happen at write time. Reader resilience exists so a dual-machine test does not lose the whole shared planning surface because of one bad cache line.
 
 ## Open Questions
 

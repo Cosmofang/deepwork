@@ -71,11 +71,13 @@ export interface DeepWorkIntentCreatedEvent extends DeepWorkBaseEvent {
 
 export interface DeepWorkPatchEvent extends DeepWorkBaseEvent {
   type: 'patch.proposed' | 'patch.applied';
+  linkedEventIds?: string[];
   linkedIntents?: string[];
   affectedSections?: string[];
   affectedFiles?: string[];
   status: 'proposed' | 'applied' | 'rejected' | 'superseded';
   reason?: string;
+  patchId?: string;
 }
 
 export interface DeepWorkArtifactUpdatedEvent extends DeepWorkBaseEvent {
@@ -131,6 +133,13 @@ export type DeepWorkSemanticEvent =
 
 export type DeepWorkActionPriority = 'p0' | 'p1' | 'p2';
 
+export interface DeepWorkGovernancePolicy {
+  rule: 'human_review_required' | 'agent_may_write_event' | 'agent_may_propose_only';
+  reason: string;
+  requiredEventTypes?: DeepWorkEventType[];
+  allowedActorTrustLevels?: DeepWorkActorTrustLevel[];
+}
+
 export interface DeepWorkRecommendedAction {
   id: string;
   priority: DeepWorkActionPriority;
@@ -141,6 +150,13 @@ export interface DeepWorkRecommendedAction {
   affectedFiles?: string[];
   linkedEventIds?: string[];
   suggestedAction?: 'write_event' | 'run_synthesis' | 'invite_actor' | 'review_patch';
+  closeWith?: {
+    eventType: DeepWorkEventType;
+    field: 'decisionId' | 'linkedEventIds' | 'linkedIntents';
+    acceptedValues: string[];
+    note?: string;
+  };
+  governancePolicy?: DeepWorkGovernancePolicy;
 }
 
 export interface DeepWorkSnapshot {

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { loadSnapshot, syncRoomStateToWorkspace, toDeepWorkSnapshot } from '@/lib/room-state';
+import { syncRoomStateToWorkspace, toDeepWorkSnapshot } from '@/lib/room-state';
 import { DeepWorkSemanticEvent } from '@/types/deepwork-protocol';
 
 const DEEPWORK_ROOT = path.join(process.cwd(), '.deepwork');
 
-const RECENT_EVENTS_LIMIT = 20;
+const RECENT_EVENTS_LIMIT = 100;
 
 async function readRecentEvents(safeId: string): Promise<DeepWorkSemanticEvent[]> {
   try {
@@ -14,11 +14,20 @@ async function readRecentEvents(safeId: string): Promise<DeepWorkSemanticEvent[]
       path.join(DEEPWORK_ROOT, 'rooms', safeId, 'events.ndjson'),
       'utf8'
     );
-    return raw
-      .split('\n')
-      .filter(Boolean)
-      .slice(-RECENT_EVENTS_LIMIT)
-      .map(line => JSON.parse(line) as DeepWorkSemanticEvent);
+
+    const lines = raw.split('\n').filter(Boolean);
+    const parsedEvents: DeepWorkSemanticEvent[] = [];
+
+    for (let index = Math.max(0, lines.length - RECENT_EVENTS_LIMIT); index < lines.length; index += 1) {
+      const line = lines[index];
+      try {
+        parsedEvents.push(JSON.parse(line) as DeepWorkSemanticEvent);
+      } catch {
+        // Preserve workspace readability even if one append was interrupted or hand-edited.
+      }
+    }
+
+    return parsedEvents;
   } catch {
     return [];
   }
@@ -61,14 +70,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [roomSnapshot, , recentEvents] = await Promise.all([
-      loadSnapshot(roomId),
-      syncRoomStateToWorkspace(roomId),
+    await syncRoomStateToWorkspace(roomId);
+    const [snapshotRaw, projectKeyRaw, recentEvents] = await Promise.all([
+      fs.readFile(snapshotPath, 'utf8'),
+      fs.readFile(projectKeyPath, 'utf8').catch(() => null),
       readRecentEvents(safeId),
     ]);
 
+    const roomSnapshot = JSON.parse(snapshotRaw);
     const snapshot = toDeepWorkSnapshot(roomSnapshot, recentEvents);
-    const projectKeyRaw = await fs.readFile(projectKeyPath, 'utf8').catch(() => null);
     const projectKey = projectKeyRaw ? JSON.parse(projectKeyRaw) as object : null;
 
     return NextResponse.json(

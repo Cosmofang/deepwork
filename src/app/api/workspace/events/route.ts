@@ -144,11 +144,34 @@ function assertOptionalString(value: unknown, field: string): string | NextRespo
 }
 
 function hasSemanticLinkage(event: {
+  linkedEventIds?: string[];
   linkedIntents?: string[];
   affectedSections?: string[];
   affectedFiles?: string[];
 }) {
-  return Boolean(event.linkedIntents?.length || event.affectedSections?.length || event.affectedFiles?.length);
+  return Boolean(event.linkedEventIds?.length || event.linkedIntents?.length || event.affectedSections?.length || event.affectedFiles?.length);
+}
+
+function stableEventId(type: DeepWorkEventType) {
+  const randomSuffix = Math.random().toString(36).slice(2, 8);
+  return `${type.replace(/\./g, '-')}-${Date.now().toString(36)}-${randomSuffix}`;
+}
+
+function normalizeActorId(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function getKnownActorId(eventInput: Partial<DeepWorkSemanticEvent>) {
+  return normalizeActorId(eventInput.actorId) || normalizeActorId(eventInput.participantId);
+}
+
+function getOptionalEventId(eventInput: Partial<DeepWorkSemanticEvent>) {
+  const maybeWithId = eventInput as Partial<DeepWorkSemanticEvent> & { id?: unknown };
+  return typeof maybeWithId.id === 'string' && maybeWithId.id.trim().length > 0
+    ? maybeWithId.id.trim()
+    : undefined;
 }
 
 function isErrorResult<T>(value: T | NextResponse): value is NextResponse {
@@ -166,14 +189,19 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
     });
   }
 
+  const eventType = eventInput.type as DeepWorkEventType;
   const summary = assertNonEmptyString(eventInput.summary, 'event.summary');
   if (isErrorResult(summary)) return summary;
 
+  const actorId = getKnownActorId(eventInput);
+
   const base = {
     ...eventInput,
+    id: getOptionalEventId(eventInput) || stableEventId(eventType),
     projectId: PROJECT_ID,
     recordedAt: new Date().toISOString(),
     summary,
+    ...(actorId ? { actorId, participantId: actorId } : {}),
   };
 
   switch (eventInput.type) {
@@ -189,6 +217,8 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
       const event = eventInput as Partial<DeepWorkPatchEvent>;
       const affectedFiles = assertStringArray(event.affectedFiles, 'event.affectedFiles');
       if (isErrorResult(affectedFiles)) return affectedFiles;
+      const linkedEventIds = assertStringArray(event.linkedEventIds, 'event.linkedEventIds');
+      if (isErrorResult(linkedEventIds)) return linkedEventIds;
       const linkedIntents = assertStringArray(event.linkedIntents, 'event.linkedIntents');
       if (isErrorResult(linkedIntents)) return linkedIntents;
       const affectedSections = assertStringArray(event.affectedSections, 'event.affectedSections');
@@ -197,19 +227,23 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
       if (!['proposed', 'applied', 'rejected', 'superseded'].includes(status)) {
         return errorResponse('event.status must be proposed, applied, rejected, or superseded');
       }
-      if (!hasSemanticLinkage({ linkedIntents, affectedSections, affectedFiles })) {
-        return errorResponse('patch events must include at least one of linkedIntents, affectedSections, or affectedFiles');
+      if (!hasSemanticLinkage({ linkedEventIds, linkedIntents, affectedSections, affectedFiles })) {
+        return errorResponse('patch events must include at least one of linkedEventIds, linkedIntents, affectedSections, or affectedFiles');
       }
       const reason = assertOptionalString(event.reason, 'event.reason');
       if (isErrorResult(reason)) return reason;
+      const patchId = assertOptionalString(event.patchId, 'event.patchId');
+      if (isErrorResult(patchId)) return patchId;
       return {
         ...base,
         type: eventInput.type,
         status,
         affectedFiles,
+        linkedEventIds,
         linkedIntents,
         affectedSections,
         reason,
+        patchId,
       } as DeepWorkPatchEvent;
     }
     case 'artifact.updated': {
@@ -226,7 +260,11 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
       const event = eventInput as Partial<DeepWorkDecisionAcceptedEvent>;
       const value = assertNonEmptyString(event.value, 'event.value');
       if (isErrorResult(value)) return value;
-      return { ...base, type: eventInput.type, value, title: event.title, decisionId: event.decisionId } as DeepWorkDecisionAcceptedEvent;
+      const decisionId = assertOptionalString(event.decisionId, 'event.decisionId');
+      if (isErrorResult(decisionId)) return decisionId;
+      const title = assertOptionalString(event.title, 'event.title');
+      if (isErrorResult(title)) return title;
+      return { ...base, type: eventInput.type, value, title, decisionId } as DeepWorkDecisionAcceptedEvent;
     }
     case 'summary.updated': {
       const section = assertOptionalString((eventInput as { section?: unknown }).section, 'event.section');
@@ -241,7 +279,13 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
       if (isErrorResult(actorIds)) return actorIds;
       const conflictId = assertOptionalString(event.conflictId, 'event.conflictId');
       if (isErrorResult(conflictId)) return conflictId;
-      return { ...base, type: eventInput.type, conflictId, sections, actorIds } as DeepWorkConflictDetectedEvent;
+      return {
+        ...base,
+        type: eventInput.type,
+        conflictId: conflictId || base.id,
+        sections,
+        actorIds,
+      } as DeepWorkConflictDetectedEvent;
     }
     default:
       return errorResponse(`Unsupported event type '${eventInput.type}'`);

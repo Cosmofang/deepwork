@@ -38,9 +38,11 @@ export interface RoomStateEvent {
   summary?: string;
   content?: string;
   round?: number;
+  linkedEventIds?: string[];
   linkedIntents?: string[];
   affectedSections?: string[];
   affectedFiles?: string[];
+  patchId?: string;
   patchStatus?: 'proposed' | 'applied' | 'rejected' | 'superseded';
   reason?: string;
   artifactType?: 'html' | 'markdown' | 'doc' | 'code' | 'other';
@@ -107,6 +109,15 @@ interface RoomIndexEntry {
 
 const DEEPWORK_ROOT = path.join(process.cwd(), '.deepwork');
 const WORKSPACE_ROOT = path.join(DEEPWORK_ROOT, 'rooms');
+
+function stableEventId(type: string) {
+  const randomSuffix = Math.random().toString(36).slice(2, 8);
+  return `${type.replace(/\./g, '-')}-${Date.now().toString(36)}-${randomSuffix}`;
+}
+
+function eventIdentity(event: DeepWorkSemanticEvent) {
+  return event.id || event.recordedAt;
+}
 
 function sanitizeRoomId(roomId: string) {
   return roomId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -317,6 +328,7 @@ async function writeProjectEntry(snapshot: RoomSnapshot, roomDir: string) {
 function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWorkSemanticEvent {
   const type = toSemanticEventType(event.type);
   const base = {
+    id: stableEventId(type),
     type,
     projectId: 'deepwork',
     roomId,
@@ -360,9 +372,10 @@ function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWork
         ...base,
         type,
         status: event.patchStatus ?? (type === 'patch.proposed' ? 'proposed' : 'applied'),
+        linkedEventIds: event.linkedEventIds,
         linkedIntents: event.linkedIntents,
         affectedSections: event.affectedSections,
-        affectedFiles: event.affectedFiles,
+        patchId: event.patchId,
         reason: event.reason,
       };
     case 'artifact.updated':
@@ -381,14 +394,16 @@ function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWork
         title: event.title,
         value: event.value,
       };
-    case 'conflict.detected':
+    case 'conflict.detected': {
+      const conflictId = event.conflictId || base.id;
       return {
         ...base,
         type,
-        conflictId: event.conflictId,
+        conflictId,
         sections: event.sections,
         actorIds: event.actorIds,
       };
+    }
     case 'summary.updated':
       return {
         ...base,
@@ -401,14 +416,29 @@ function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWork
 }
 
 function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSemanticEvent[] = []): DeepWorkSnapshot {
-  const proposedPatches = recentEvents.filter(
-    (event): event is DeepWorkPatchEvent => event.type === 'patch.proposed'
-  );
+  const proposedPatches = recentEvents
+    .filter((event): event is DeepWorkPatchEvent => event.type === 'patch.proposed')
+    .filter(proposedPatch => {
+      const proposedPatchId = eventIdentity(proposedPatch);
+      const proposedPatchIds = [proposedPatchId, proposedPatch.patchId].filter(Boolean) as string[];
+      return !recentEvents.some(event => {
+        if (event.type !== 'patch.applied' && event.type !== 'decision.accepted') return false;
+
+        const linkedEventIds = 'linkedEventIds' in event ? event.linkedEventIds : undefined;
+        const linkedIntents = 'linkedIntents' in event ? event.linkedIntents : undefined;
+        const decisionId = 'decisionId' in event ? event.decisionId : undefined;
+        return Boolean(
+          (decisionId && proposedPatchIds.includes(decisionId)) ||
+          linkedEventIds?.some(id => proposedPatchIds.includes(id)) ||
+          linkedIntents?.some(id => proposedPatchIds.includes(id))
+        );
+      });
+    });
 
   const latestArtifacts = recentEvents
     .filter((event): event is DeepWorkArtifactUpdatedEvent => event.type === 'artifact.updated')
     .map(event => ({
-      id: event.id,
+      id: eventIdentity(event),
       type: event.artifactType,
       path: event.artifactPath || 'unknown',
       updatedAt: event.recordedAt,
@@ -473,6 +503,9 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
   if (proposedPatches.length > 0) {
     const affectedSections = Array.from(new Set(proposedPatches.flatMap(patch => patch.affectedSections ?? [])));
     const affectedFiles = Array.from(new Set(proposedPatches.flatMap(patch => patch.affectedFiles ?? [])));
+    const linkedPatchIds = proposedPatches
+      .flatMap(patch => [eventIdentity(patch), patch.patchId])
+      .filter(Boolean) as string[];
     recommendedNextActions.push({
       id: 'review-proposed-patches',
       priority: 'p1',
@@ -482,7 +515,19 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
       suggestedAction: 'review_patch',
       affectedSections: affectedSections.length ? affectedSections : undefined,
       affectedFiles: affectedFiles.length ? affectedFiles : undefined,
-      linkedEventIds: proposedPatches.map(patch => patch.id || patch.recordedAt),
+      linkedEventIds: Array.from(new Set(linkedPatchIds)),
+      closeWith: {
+        eventType: 'patch.applied',
+        field: 'linkedEventIds',
+        acceptedValues: Array.from(new Set(linkedPatchIds)),
+        note: 'Alternatively write decision.accepted with decisionId equal to one of these values to accept the proposed patch without applying it in this endpoint.',
+      },
+      governancePolicy: {
+        rule: 'human_review_required',
+        reason: 'Applying or accepting patches changes shared project state and should be explicitly reviewed before closure.',
+        requiredEventTypes: ['decision.accepted', 'patch.applied'],
+        allowedActorTrustLevels: ['owner', 'trusted'],
+      },
     });
   }
 
@@ -496,7 +541,7 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
       .map(e => e.decisionId || '')
       .filter(Boolean)
   );
-  const unresolvedConflicts = conflictEvents.filter(event => !resolvedIds.has(event.conflictId || event.recordedAt));
+  const unresolvedConflicts = conflictEvents.filter(event => !resolvedIds.has(event.conflictId || eventIdentity(event)));
   if (unresolvedConflicts.length > 0) {
     const affectedSections = Array.from(new Set(unresolvedConflicts.flatMap(event => event.sections ?? [])));
     recommendedNextActions.push({
@@ -507,7 +552,19 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
       eventTypes: ['decision.accepted'],
       suggestedAction: 'write_event',
       affectedSections: affectedSections.length ? affectedSections : undefined,
-      linkedEventIds: unresolvedConflicts.map(event => event.id || event.conflictId || event.recordedAt),
+      linkedEventIds: unresolvedConflicts.map(event => event.conflictId || eventIdentity(event)),
+      closeWith: {
+        eventType: 'decision.accepted',
+        field: 'decisionId',
+        acceptedValues: unresolvedConflicts.map(event => event.conflictId || eventIdentity(event)),
+        note: 'Use one accepted value per decision.accepted event so other agents can verify the conflict closure from shared state.',
+      },
+      governancePolicy: {
+        rule: 'human_review_required',
+        reason: 'Conflict resolution is a team decision; agents may surface options but should not silently choose between incompatible human intents.',
+        requiredEventTypes: ['decision.accepted'],
+        allowedActorTrustLevels: ['owner', 'trusted'],
+      },
     });
   }
 
@@ -570,7 +627,7 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
     decisions: recentEvents
       .filter(event => event.type === 'decision.accepted')
       .map(event => ({
-        id: event.decisionId || event.id || event.recordedAt,
+        id: event.decisionId || eventIdentity(event),
         title: event.title || event.summary,
         value: event.value || event.summary,
         status: 'accepted' as const,
@@ -579,7 +636,7 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
     proposedPatches,
     latestArtifacts,
     unresolvedConflicts: unresolvedConflicts.map(event => ({
-      id: event.conflictId || event.id,
+      id: event.conflictId || eventIdentity(event),
       summary: event.summary,
       sections: event.sections,
       actorIds: event.actorIds,

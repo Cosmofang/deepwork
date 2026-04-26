@@ -67,7 +67,7 @@ Success condition: Machine B identifies the new positioning requirement and link
 
 ## Step 4: Machine B Records A Semantic Patch
 
-Machine B should propose a small patch, ideally a documentation or copy change, and record it as `patch.proposed` before or alongside applying it. The semantic record should include `summary`, `reason`, `linkedIntents` if an intent ID is available, `affectedSections`, `affectedFiles`, and `status`.
+Machine B should propose a small patch, ideally a documentation or copy change, and record it as `patch.proposed` before or alongside applying it. The semantic record should include `summary`, `reason`, `linkedIntents` if an intent ID is available, `affectedSections`, `affectedFiles`, and `status`. If Machine B can provide a deterministic semantic identifier, it may also include `patchId`. If the patch is later applied or accepted, the closing event should link back to either the proposal's generated event `id` or its `patchId` through `linkedEventIds` or `decisionId` so another machine can tell the proposal is no longer open.
 
 Current code provides a first-class writer path: `POST /api/workspace/events`. Use it for non-destructive semantic records from external agents. Example request:
 
@@ -78,6 +78,7 @@ Current code provides a first-class writer path: `POST /api/workspace/events`. U
     "type": "patch.proposed",
     "summary": "Reframe homepage copy around shared project state and intent protocol.",
     "reason": "The latest intent changes the product narrative from landing-page demo to agent-readable collaboration layer.",
+    "patchId": "homepage-positioning-protocol-copy",
     "linkedIntents": ["<INTENT_ID>"],
     "affectedSections": ["产品定位", "首页首屏"],
     "affectedFiles": ["src/app/page.tsx", "README.md"],
@@ -98,19 +99,21 @@ Success condition: both machines can discover the latest artifact from shared pr
 
 ## Step 6: Governance Action Visibility
 
-After synthesis or after writing a `conflict.detected` / `patch.proposed` event, both machines should inspect `snapshot.recommendedNextActions` from `GET /api/workspace?roomId=<ROOM_ID>`. The field is not UI copy; it is an agent-readable planning surface. Each action should include a stable `id`, `priority`, `summary`, `reason`, `suggestedAction`, and relevant protocol hints such as `eventTypes`, `affectedSections`, `affectedFiles`, or `linkedEventIds`.
+After synthesis or after writing a `conflict.detected` / `patch.proposed` event, both machines should inspect `snapshot.recommendedNextActions` from `GET /api/workspace?roomId=<ROOM_ID>`. The field is not UI copy; it is an agent-readable planning surface. Each action should include a stable `id`, `priority`, `summary`, `reason`, `suggestedAction`, and relevant protocol hints such as `eventTypes`, `affectedSections`, `affectedFiles`, `linkedEventIds`, `closeWith`, or `governancePolicy`.
 
-For a conflict test, Machine A or the synthesis flow should record a `conflict.detected` event with a stable `conflictId`. Both machines should then verify that `recommendedNextActions` contains a `p0` action with `id: "resolve-open-conflicts"`, `suggestedAction: "write_event"`, and `eventTypes: ["decision.accepted"]`. Machine B should be able to infer the next governance move from this structured action without reading Machine A's chat.
+For a conflict test, Machine A or the synthesis flow should record a `conflict.detected` event with a stable `conflictId`. Both machines should then verify that `recommendedNextActions` contains a `p0` action with `id: "resolve-open-conflicts"`, `suggestedAction: "write_event"`, `eventTypes: ["decision.accepted"]`, `closeWith.field: "decisionId"`, and `governancePolicy.rule: "human_review_required"`. Machine B should be able to infer the next governance move from this structured action without reading Machine A's chat, while also understanding that the final closure represents a reviewed team decision rather than an autonomous agent choice.
 
 To close the loop, Machine B should record a `decision.accepted` event whose `decisionId` exactly matches the conflict's `conflictId`, and whose `value` states the accepted resolution. Both machines should refresh `GET /api/workspace?roomId=<ROOM_ID>` and verify that the resolved conflict is absent from `snapshot.unresolvedConflicts` and is no longer counted by the `resolve-open-conflicts` action. If several conflicts exist, the action may remain but its count and `linkedEventIds` should only refer to still-unresolved conflicts.
 
-For a patch test, Machine B should record a `patch.proposed` event. Both machines should then verify that `recommendedNextActions` contains a `p1` action with `id: "review-proposed-patches"`, `suggestedAction: "review_patch"`, and links back to the proposed patch through `linkedEventIds` or affected files/sections.
+For a patch test, Machine B should record a `patch.proposed` event. Both machines should then verify that `recommendedNextActions` contains a `p1` action with `id: "review-proposed-patches"`, `suggestedAction: "review_patch"`, and links back to the proposed patch through `linkedEventIds` or affected files/sections. If the proposal has a semantic `patchId`, `recommendedNextActions.linkedEventIds` should include both the generated event `id` and that `patchId`, giving another agent a human-readable close target without first parsing the raw event stream. The action should also expose `closeWith.field: "linkedEventIds"` and accepted values containing the generated `id` and/or `patchId`. To close the loop, record either `patch.applied` with `linkedEventIds` containing the proposal's generated `id` or `patchId`, or `decision.accepted` with `decisionId` equal to the generated `id` or `patchId`; after refresh, that proposal should disappear from `snapshot.proposedPatches` and the `review-proposed-patches` count should decrease.
 
 Success condition: both machines sort the same action list by priority and independently choose the same next move. A passing result proves that DeepWork can expose governance work as shared protocol state, not as hidden model reasoning or a private chat instruction.
 
 ## Step 7: Convergence Check
 
 Both machines should independently refresh the workspace reader endpoint and compare: room ID, snapshot update time, total recent intents, total sections, latest artifact if present, latest synthesis round if discoverable, the most recent semantic event type, and the highest-priority `recommendedNextActions` item. If local `.deepwork` files are used, compare the same fields from `project.json`, `snapshot.json`, and `events.ndjson`.
+
+For stress testing the reader window, write more than 20 but fewer than 100 harmless semantic events such as `summary.updated`, then refresh the workspace endpoint. A previously proposed patch or detected conflict that has not been closed should still appear in `snapshot.proposedPatches` or `snapshot.unresolvedConflicts`, and closed items inside that window should still disappear after their closure event. If governance state depends on events older than the latest 100 lines, record that as a known limitation rather than treating convergence as proven.
 
 Success condition: both machines report the same project state summary and can describe the latest requirement, patch, artifact, and next governance action in compatible language.
 
