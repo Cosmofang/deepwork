@@ -84,9 +84,10 @@ export async function POST(req: NextRequest) {
   // 1. Know the current round number (for intent tagging and prompt context)
   // 2. Use previous attribution map to guide incremental synthesis
   // 3. Tag intents submitted after the previous synthesis as "new this round"
+  // 4. Extract the <style> block to preserve exact CSS variables across rounds
   const { data: prevResults } = await supabase
     .from('synthesis_results')
-    .select('round, created_at, attribution_map, conflicts_resolved')
+    .select('round, created_at, attribution_map, conflicts_resolved, html_content')
     .eq('room_id', normalizedRoomId)
     .order('round', { ascending: false })
     .limit(1);
@@ -120,9 +121,28 @@ export async function POST(req: NextRequest) {
     ...newIntents.map(i => buildIntentLine(i, true)),
   ].join('\n');
 
+  // Extract the <style> block from previous HTML, capped at 8000 chars.
+  // This gives Claude the exact CSS variable names and values from Round 1
+  // so Round 2 inherits the same design token system instead of reinventing it.
+  const extractStyleBlock = (html: string): string => {
+    const start = html.indexOf('<style');
+    if (start === -1) return '';
+    const end = html.indexOf('</style>', start);
+    if (end === -1) return '';
+    const block = html.slice(start, end + 8);
+    return block.length > 8000 ? block.slice(0, 8000) + '\n/* [截断] */' : block;
+  };
+
+  const prevStyleBlock = isIteration && prevResult?.html_content
+    ? extractStyleBlock(prevResult.html_content as string)
+    : '';
+
   const iterationContext = isIteration && prevResult
     ? `
 ## 上一轮合成结论（第 ${currentRound - 1} 轮，请在此基础上迭代）
+
+### 上一轮 CSS 设计令牌（必须直接复用，不得修改变量名）
+${prevStyleBlock || '（无法提取，请自行保持与上轮一致的视觉风格）'}
 
 ### 上一轮归因摘要
 ${JSON.stringify(prevResult.attribution_map, null, 2)}
@@ -132,9 +152,9 @@ ${((prevResult.conflicts_resolved as string[]) ?? []).map(c => `- ${c}`).join('\
 
 **迭代要求**：
 - 优先处理标注「本轮新增」的意图，这些是本轮迭代的重点
-- 保持上一轮已建立的整体视觉风格和品牌调性
+- **必须**直接复用上方 CSS 的 :root 变量定义，不要重新定义或改变变量名
 - 若新增意图与已解决冲突有出入，以新意图为准并记录变化
-- 上一轮没有被本轮意图涉及的板块可以保留原有决策
+- 上一轮没有被本轮意图涉及的板块可以保留原有内容和样式
 `
     : '';
 

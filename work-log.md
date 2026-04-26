@@ -2,6 +2,72 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第六十轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 59 完成了完整的 Round 2 演示填充路径。剩余优先级中，P0 两项需要真实 `.env.local` 凭据（无法在本轮自动完成），P1 项——迭代 prompt 传入上一轮 HTML 前 8KB——是当前可直接实现、对合成质量影响最大的改动。
+
+**核心问题**：迭代合成时，Claude 知道"上一轮的归因决策和已解决冲突"，但**不知道上一轮的具体视觉设计语言**。因此：
+- Round 2 极有可能重新命名 CSS 变量（`:root { --accent: ...}` → `:root { --primary: ...}`）
+- 颜色值可能出现微小漂移（`#a855f7` → `#9333ea`）
+- 组件的 `border-radius`、`padding` 等令牌可能改变
+- 视觉上 Round 2 看起来像是一个"不同的设计"而非"迭代改进"
+
+### 本轮完成的改动
+
+#### ✅ `src/app/api/synthesize/route.ts` — 上一轮 CSS 注入到迭代 prompt
+
+**查询变化**：`select()` 新增 `html_content` 字段：
+```ts
+.select('round, created_at, attribution_map, conflicts_resolved, html_content')
+```
+
+**CSS 提取函数**：
+```ts
+const extractStyleBlock = (html: string): string => {
+  const start = html.indexOf('<style');
+  const end = html.indexOf('</style>', start);
+  const block = html.slice(start, end + 8);
+  return block.length > 8000 ? block.slice(0, 8000) + '\n/* [截断] */' : block;
+};
+```
+安全截断：若 `<style>` 块超过 8000 字符（约 2000 tokens），截断并附加 `/* [截断] */` 标记。提取失败时 fallback 为空字符串，迭代逻辑不受影响。
+
+**迭代上下文变化**：新增"上一轮 CSS 设计令牌"区块，位于归因摘要之前：
+```
+### 上一轮 CSS 设计令牌（必须直接复用，不得修改变量名）
+<style>
+  :root {
+    --bg-primary: #0a0a0a;
+    --accent-purple: #a855f7;
+    ...
+  }
+  ...
+</style>
+```
+
+迭代要求措辞强化：从"保持上一轮已建立的整体视觉风格和品牌调性"改为"**必须**直接复用上方 CSS 的 :root 变量定义，不要重新定义或改变变量名"。
+
+### 为什么这是方向正确的改动
+
+"迭代"的最直观感知是视觉连续性——颜色、间距、字体不变，内容和结构在演进。仅传递 attributionMap 给 Claude 相当于说"你上次把 hero 归给了 designer"，但 Claude 不知道 designer 用了哪种紫色、哪个 border-radius。传递 `<style>` 块相当于把上次的设计系统令牌直接交给 Claude，强制继承。
+
+对 token 预算影响轻微：典型落地页的 `<style>` 块约 3000-6000 字符（≈1000-2000 tokens），8000 字符上限确保不超支。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑 Round 1 → Round 2 完整路径，验证 CSS 令牌继承效果
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：结果页迭代历史面板增加"归因变化"摘要——对比相邻两轮的 attributionMap，标注哪些板块换了主贡献角色，让演示时的"迭代提升"更具体可见
+- **P1**：`max_tokens` 当前为 16000，CSS 注入后输入更长，考虑在迭代轮次提升到 20000（需确认 claude-sonnet-4-6 限制）
+
+---
+
 ## 第五十九轮分析 — 2026/04/27
 
 ### 本轮扫描结论
