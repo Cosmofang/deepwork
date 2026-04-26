@@ -2,6 +2,49 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第四十七轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+代码树干净，Cycle 46 已提交。本轮针对 work-log P1 优先级：synthesize route 末尾两次 `syncRoomStateToWorkspace` 合并为一次。
+
+深入阅读 `room-state.ts` 后发现问题比预估更完整：
+- `loadSnapshot` 每次调用发出 5 条并行 Supabase 查询 + 1 条 HTML 获取查询 = 6 次查询/调用
+- 两次独立调用 = 12 次 Supabase 查询
+- 此外，冲突事件（`conflict.detected`）通过 `fs.appendFile` 直接写入 `events.ndjson`，完全绕过了 `toSemanticEventPayload` 的标准化路径
+
+### 本轮完成的改动
+
+#### ✅ synthesize route：三步合并为单次 batch sync
+
+**文件**：`src/app/api/synthesize/route.ts`
+
+**改动要点**：
+
+1. 移除 `import { promises as fs } from 'fs'` 和 `import path from 'path'`（仅用于直接写冲突事件，现已不再需要）
+
+2. 新增 `import { ..., RoomStateEvent } from '@/lib/room-state'`
+
+3. 将以下三个步骤合并为一次 `syncRoomStateToWorkspace` 调用：
+   - `synthesis_completed` 事件
+   - `artifact.updated` 事件
+   - 所有未解决冲突的 `conflict.detected` 事件（原为独立 `fs.appendFile` 循环）
+
+4. 冲突事件现在走 `toSemanticEventPayload` 标准化路径，与其他事件格式完全一致
+
+**效果**：
+- post-synthesis Supabase 查询：12 次 → 6 次（`loadSnapshot` 仅调用一次）
+- 冲突事件格式：从手写 raw JSON → `toSemanticEventPayload` 标准化输出
+- 代码行数：减少约 20 行（移除 `safeId`、`eventsPath`、`now`、`Promise.all` 循环）
+
+### 下一步优先级
+
+- **P0（4/29 之前）**：用真实 `.env.local` 跑完完整 demo 路径（`docs/demo-quickstart.md` 核对清单）
+- **P0（4/29 之前）**：跑 Section 7b 的 governance curl 闭环测试（conflict → decision → verify）
+- **P1**：关注合成失败 UX — 当前 `synthesis_started` 调用 `syncRoomStateToWorkspace` 在 Claude 调用前，若 Claude 超时或失败，`events.ndjson` 中会留下孤立的 `synthesis.started` 事件（无对应 `synthesis.completed`）。可在失败路径写入 `synthesis.failed` 自定义事件或 `summary.updated` 记录失败原因。
+
+---
+
 ## 第四十六轮分析 — 2026/04/26
 
 ### 本轮扫描结论

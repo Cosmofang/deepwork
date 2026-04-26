@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { promises as fs } from 'fs';
-import path from 'path';
 
 // Vercel: allow up to 120s for Claude synthesis (default is 10s)
 export const maxDuration = 120;
 import { createClient, getSupabaseServerConfigStatus } from '@/lib/supabase-server';
-import { syncRoomStateToWorkspace } from '@/lib/room-state';
+import { syncRoomStateToWorkspace, RoomStateEvent } from '@/lib/room-state';
 import { ROLES } from '@/lib/roles';
 import { DEFAULT_SECTION, normalizeSectionName } from '@/lib/sections';
 import { RoleId } from '@/types';
@@ -222,48 +220,39 @@ ${intentLines}
     await supabase.from('rooms').update({ status: 'done' }).eq('id', normalizedRoomId);
 
     const round = (count ?? 0) + 1;
-    await syncRoomStateToWorkspace(normalizedRoomId, {
-      type: 'synthesis_completed',
-      round,
-      summary: `Round ${round} 已完成合成`,
-    });
 
-    // Record the HTML artifact so agents can discover it via events.ndjson
-    await syncRoomStateToWorkspace(normalizedRoomId, {
-      type: 'artifact.updated',
-      artifactType: 'html',
-      artifactPath: `.deepwork/rooms/${normalizedRoomId}/latest.html`,
-      attributionMap: output.attributionMap,
-      summary: `Round ${round} HTML 产物已写入 .deepwork/rooms/${normalizedRoomId}/latest.html`,
-    });
-
-    // Write conflict.detected protocol events for any synthesis-detected conflicts
-    // so that recommendedNextActions can surface them as governance hooks.
+    // Batch synthesis_completed + artifact.updated + any unresolved conflict events into
+    // one syncRoomStateToWorkspace call so loadSnapshot (5 Supabase queries) runs once
+    // instead of twice, and conflict events go through toSemanticEventPayload properly.
     const unresolved = (output.conflictsDetected ?? []).filter(
       desc => !(output.conflictsResolved ?? []).some(r => r.includes(desc) || desc.includes(r))
     );
-    if (unresolved.length > 0) {
-      const safeId = normalizedRoomId.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const eventsPath = path.join(process.cwd(), '.deepwork', 'rooms', safeId, 'events.ndjson');
-      const now = new Date().toISOString();
-      await Promise.all(
-        unresolved.map((desc, i) => {
-          const conflictId = `synth-r${round}-c${i}`;
-          const conflictEvent = {
-            id: conflictId,
-            type: 'conflict.detected',
-            projectId: 'deepwork',
-            roomId: normalizedRoomId,
-            summary: desc,
-            conflictId,
-            sections: [],
-            actorIds: [],
-            recordedAt: now,
-          };
-          return fs.appendFile(eventsPath, `${JSON.stringify(conflictEvent)}\n`, 'utf8');
-        })
-      );
-    }
+    const postSynthesisEvents: RoomStateEvent[] = [
+      {
+        type: 'synthesis_completed',
+        round,
+        summary: `Round ${round} 已完成合成`,
+      },
+      {
+        type: 'artifact.updated',
+        artifactType: 'html',
+        artifactPath: `.deepwork/rooms/${normalizedRoomId}/latest.html`,
+        attributionMap: output.attributionMap,
+        summary: `Round ${round} HTML 产物已写入 .deepwork/rooms/${normalizedRoomId}/latest.html`,
+      },
+      ...unresolved.map((desc, i): RoomStateEvent => ({
+        type: 'conflict.detected',
+        conflictId: `synth-r${round}-c${i}`,
+        sections: [],
+        actorIds: [],
+        summary: desc,
+      })),
+    ];
+    await syncRoomStateToWorkspace(
+      normalizedRoomId,
+      postSynthesisEvents[postSynthesisEvents.length - 1],
+      postSynthesisEvents.slice(0, -1)
+    );
 
     return NextResponse.json({ success: true });
   } catch {
