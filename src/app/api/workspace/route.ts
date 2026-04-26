@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { syncRoomStateToWorkspace, toDeepWorkSnapshot } from '@/lib/room-state';
-import { DeepWorkSemanticEvent } from '@/types/deepwork-protocol';
+import {
+  DEEPWORK_ACTION_CAPABILITIES,
+  DeepWorkSemanticEvent,
+} from '@/types/deepwork-protocol';
 
 const DEEPWORK_ROOT = path.join(process.cwd(), '.deepwork');
 
@@ -37,7 +40,7 @@ async function readRecentEvents(safeId: string): Promise<DeepWorkSemanticEvent[]
 // Returns agent-readable DeepWork snapshot for a room, including recent semantic events.
 // First tries the cached .deepwork/rooms/{roomId}/snapshot.json, then converts it into the
 // protocol-level DeepWorkSnapshot shape. Falls back to a fresh Supabase read and writes the file for next time.
-// Response: { snapshot, projectKey, recentEvents, source: 'cache' | 'live' }
+// Response: { snapshot, projectKey, recentEvents, actionCapabilities, source: 'cache' | 'live' }
 export async function GET(req: NextRequest) {
   const roomId = req.nextUrl.searchParams.get('roomId')?.trim().toUpperCase();
 
@@ -62,7 +65,7 @@ export async function GET(req: NextRequest) {
     const projectKey = projectKeyRaw ? JSON.parse(projectKeyRaw) as object : null;
 
     return NextResponse.json(
-      { snapshot, projectKey, recentEvents, source: 'cache' },
+      { snapshot, projectKey, recentEvents, actionCapabilities: DEEPWORK_ACTION_CAPABILITIES, source: 'cache' },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch {
@@ -82,7 +85,7 @@ export async function GET(req: NextRequest) {
     const projectKey = projectKeyRaw ? JSON.parse(projectKeyRaw) as object : null;
 
     return NextResponse.json(
-      { snapshot, projectKey, recentEvents, source: 'live' },
+      { snapshot, projectKey, recentEvents, actionCapabilities: DEEPWORK_ACTION_CAPABILITIES, source: 'live' },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (err) {

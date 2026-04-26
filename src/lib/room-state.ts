@@ -496,6 +496,12 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
         suggestedAction: 'run_synthesis',
         affectedSections,
         linkedEventIds: newIntents.map(intent => intent.id),
+        governancePolicy: {
+          rule: 'human_review_required',
+          reason: 'Re-synthesis changes the visible shared artifact and should be triggered by a trusted facilitator or explicit team action.',
+          requiredEventTypes: ['synthesis.started', 'synthesis.completed', 'artifact.updated'],
+          allowedActorTrustLevels: ['owner', 'trusted'],
+        },
       });
     }
   }
@@ -572,6 +578,7 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
   const joinedRoles = new Set(snapshot.participants.map(p => p.role as RoleId));
   const missingRoles = ROLE_IDS.filter(r => !joinedRoles.has(r));
   if (missingRoles.length > 0 && snapshot.intents.length > 0) {
+    const presentRoles = ROLE_IDS.filter(r => joinedRoles.has(r));
     const labels = missingRoles.map(r => ROLES[r]?.label ?? r).join(', ');
     recommendedNextActions.push({
       id: 'invite-missing-roles',
@@ -580,6 +587,11 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
       reason: 'The demo and protocol both depend on preserving multiple perspectives before synthesis.',
       eventTypes: ['actor.joined', 'intent.created'],
       suggestedAction: 'invite_actor',
+      actorScope: {
+        missingActorRoles: missingRoles,
+        presentActorRoles: presentRoles,
+        note: 'Actor roles are role IDs, not section names; use this scope to invite or simulate the absent perspectives without overloading affectedSections.',
+      },
     });
   }
 

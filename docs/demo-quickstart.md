@@ -129,7 +129,7 @@ BASE="http://localhost:3000"
 ROOM="YOUR_ROOM_ID"
 
 # 读取协议快照
-curl -s "$BASE/api/workspace?roomId=$ROOM" | jq '.snapshot.recommendedNextActions[0]'
+curl -s "$BASE/api/workspace?roomId=$ROOM" | jq '.snapshot.recommendedNextActions[0], .actionCapabilities'
 
 # 写入 conflict.detected
 curl -s -X POST "$BASE/api/workspace/events" \
@@ -148,4 +148,4 @@ curl -s -X POST "$BASE/api/workspace/events" \
 
 ---
 
-*最后更新：Cycle 39 — 2026/04/26*
+*最后更新：Cycle 42 — 2026/04/26*

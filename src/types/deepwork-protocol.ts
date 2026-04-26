@@ -140,6 +140,12 @@ export interface DeepWorkGovernancePolicy {
   allowedActorTrustLevels?: DeepWorkActorTrustLevel[];
 }
 
+export type DeepWorkRecommendedActionSuggestion =
+  | 'write_event'
+  | 'run_synthesis'
+  | 'invite_actor'
+  | 'review_patch';
+
 export interface DeepWorkRecommendedAction {
   id: string;
   priority: DeepWorkActionPriority;
@@ -149,7 +155,12 @@ export interface DeepWorkRecommendedAction {
   affectedSections?: string[];
   affectedFiles?: string[];
   linkedEventIds?: string[];
-  suggestedAction?: 'write_event' | 'run_synthesis' | 'invite_actor' | 'review_patch';
+  suggestedAction?: DeepWorkRecommendedActionSuggestion;
+  actorScope?: {
+    missingActorRoles?: string[];
+    presentActorRoles?: string[];
+    note?: string;
+  };
   closeWith?: {
     eventType: DeepWorkEventType;
     field: 'decisionId' | 'linkedEventIds' | 'linkedIntents';
@@ -157,6 +168,14 @@ export interface DeepWorkRecommendedAction {
     note?: string;
   };
   governancePolicy?: DeepWorkGovernancePolicy;
+}
+
+export interface DeepWorkActionCapability {
+  suggestedAction: DeepWorkRecommendedActionSuggestion;
+  description: string;
+  writeEndpoint?: string;
+  requiredEventTypes?: DeepWorkEventType[];
+  requiresHumanReview?: boolean;
 }
 
 export interface DeepWorkSnapshot {
@@ -209,6 +228,32 @@ export interface DeepWorkSnapshot {
   }>;
   recommendedNextActions?: DeepWorkRecommendedAction[];
 }
+
+export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
+  {
+    suggestedAction: 'write_event',
+    description: 'Append a validated semantic event through the workspace event writer.',
+    writeEndpoint: 'POST /api/workspace/events',
+  },
+  {
+    suggestedAction: 'run_synthesis',
+    description: 'Trigger the synthesis flow so recorded intent becomes an attributed visible artifact.',
+    requiredEventTypes: ['synthesis.started', 'synthesis.completed', 'artifact.updated'],
+    requiresHumanReview: true,
+  },
+  {
+    suggestedAction: 'invite_actor',
+    description: 'Invite a missing human or agent role to contribute intent before synthesis.',
+    requiredEventTypes: ['actor.joined', 'intent.created'],
+  },
+  {
+    suggestedAction: 'review_patch',
+    description: 'Review a proposed patch and close it with patch.applied or decision.accepted after approval.',
+    writeEndpoint: 'POST /api/workspace/events',
+    requiredEventTypes: ['patch.applied', 'decision.accepted'],
+    requiresHumanReview: true,
+  },
+];
 
 export const DEEPWORK_SUPPORTED_EVENT_TYPES: DeepWorkEventType[] = [
   'actor.joined',

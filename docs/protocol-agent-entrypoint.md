@@ -17,7 +17,7 @@ DeepWork 的 landing page 协作 demo 只是 wedge。当前项目真正要验证
 
 ## 当前协议最小闭环
 
-Reader 闭环是：`GET /api/workspace?roomId=ROOM` 返回 `snapshot`、`projectKey`、`recentEvents`。这个响应应该足够让另一台机器上的 agent 不读聊天记录，也能知道当前共享项目状态与下一步建议。
+Reader 闭环是：`GET /api/workspace?roomId=ROOM` 返回 `snapshot`、`projectKey`、`recentEvents` 和 `actionCapabilities`。这个响应应该足够让另一台机器上的 agent 不读聊天记录，也能知道当前共享项目状态、下一步建议，以及每个 `suggestedAction` 对应的可执行/需审查边界。
 
 Writer 闭环是：外部 agent 通过 `POST /api/workspace/events` 写入非破坏性 semantic event，例如 `patch.proposed`、`conflict.detected`、`decision.accepted`、`summary.updated`。writer 会自动补稳定 `id`；当 `conflict.detected` 没有 `conflictId` 时，会使用事件 `id` 作为默认可关闭身份。
 

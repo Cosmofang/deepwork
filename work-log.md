@@ -2,6 +2,185 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第四十三轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮复查了 `README.md`、最新 `work-log.md`、`conversation-log.md`、`docs/protocol-agent-entrypoint.md`、`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md`、`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts` 与 `src/app/api/workspace/events/route.ts`。上一轮已经把 `recommendedNextActions[].suggestedAction` 通过 `actionCapabilities` 暴露给 reader API，主线继续稳定：DeepWork 不是 prompt tool 或 landing-page generator，而是 shared project state / intent protocol / semantic event stream / governable synthesis / attribution 的协作层。
+
+本轮发现一个小但值得修正的语义缺口：Cycle 21 曾经修掉 `invite-missing-roles` 把角色 ID 放进 `affectedSections` 的错误，但之后该 action 只剩自然语言 summary。对 continuation agent 来说，“缺哪些角色”仍需要解析英文/中文文案；而角色覆盖是 actor governance，不是 artifact section governance。协议应该显式表达 actor scope，让 Machine B 能直接读取 missing/present actor roles，而不是从 `summary` 或 `affectedSections` 猜。
+
+### 本轮完成的改动
+
+#### ✅ recommended action 增加 `actorScope`
+
+**文件**：`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`
+
+`DeepWorkRecommendedAction` 新增可选字段：
+
+```ts
+actorScope?: {
+  missingActorRoles?: string[];
+  presentActorRoles?: string[];
+  note?: string;
+}
+```
+
+`invite-missing-roles` 现在会返回：
+
+```json
+{
+  "actorScope": {
+    "missingActorRoles": ["designer", "marketer"],
+    "presentActorRoles": ["developer", "copywriter"],
+    "note": "Actor roles are role IDs, not section names..."
+  }
+}
+```
+
+这保持了 Cycle 21 的正确边界：角色不是 section，因此不放进 `affectedSections`；但也避免 action 退回只能读 prose。
+
+#### ✅ 协议文档和双机器测试同步 actor scope
+
+**文件**：`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md`
+
+- `recommendedNextActions` 文档新增 `actorScope`，说明它用于 actor coverage，不用于 artifact section governance。
+- 双机器测试 Step 6 增加 missing-role coverage 断言：如果房间有 intents 但未覆盖所有 canonical roles，两台机器应看到 `invite-missing-roles` 为 P2，且 `actorScope.missingActorRoles` / `presentActorRoles` 明确列出角色 ID。
+
+### 为什么这是方向正确的改动
+
+DeepWork 的关键不是“让 agent 猜下一步”，而是把协作状态变成可读、可治理、可接手的协议面。冲突、patch、stale artifact 已经有结构化治理字段；missing role 虽然优先级低，但它关系到 demo 的多视角完整性，也应该用协议字段表达。`actorScope` 把“谁还缺席”从 UI 文案中抽出来，进一步避免 roles/sections/patches 混成同一种模糊上下文。
+
+### 验证状态
+
+`npm run build` 本轮两次触发均超过 45 秒工具超时，未取得完整 build 输出；随后已运行 `npx tsc --noEmit --pretty false`，TypeScript 类型检查通过且无输出。改动为可选类型字段、snapshot action 生成逻辑和 Markdown 文档同步，不改变 writer endpoint、Supabase schema 或正常 synthesis 路径。已静态复核 `actorScope` 只挂在 `invite-missing-roles` 上，且 `affectedSections` 仍不承载角色 ID。仍未执行真实 Supabase/Anthropic 端到端测试，因为自动环境没有运行中的真实房间与服务配置。
+
+### 下一步建议
+
+1. **P0 — 真实端到端演练**：按 `docs/demo-quickstart.md` 启动真实环境，验证 `GET /api/workspace` 同时返回 `actionCapabilities` 和包含 `actorScope` 的 `invite-missing-roles`。
+2. **P1 — action capability input schema**：可以给 `DEEPWORK_ACTION_CAPABILITIES` 增加 example payload / minimal input schema，让 agent 不读文档也能构造合法 writer 请求。
+3. **P1 — durable governance index**：当前 reader 仍依赖 latest 100 events；长期应将 open conflict、open patch、accepted decision、stale artifact 与 actor coverage 归约进持久索引。
+
+---
+
+## 第四十二轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮复查了 `README.md`、最新 `work-log.md`、`docs/protocol-agent-entrypoint.md`、`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md`、`docs/demo-quickstart.md`、`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/route.ts` 与 `src/app/api/workspace/events/route.ts`。主线仍然清楚：DeepWork 的 wedge 是多人 landing page demo，但真正要沉淀的是可被人类、Claude、OpenClaw 与其他 agent 共同读取的 shared project state / intent protocol / semantic event stream / governable synthesis。
+
+本轮发现一个小而高杠杆的协议可读性缺口：`recommendedNextActions` 已经开始使用结构化 `suggestedAction`，例如 `write_event`、`run_synthesis`、`invite_actor`、`review_patch`，但这些 action verb 只存在于 TypeScript 字段联合类型和文档解释里；`GET /api/workspace` 的实际响应没有告诉 continuation agent 每个 verb 对应什么能力、是否有 writer endpoint、哪些事件类型可关闭、是否需要 human review。也就是说，另一个机器能看到“建议动作”，但仍需要读源码或文档才能知道动作边界。
+
+### 本轮完成的改动
+
+#### ✅ 增加 action capability registry
+
+**文件**：`src/types/deepwork-protocol.ts`
+
+新增 `DeepWorkRecommendedActionSuggestion` 与 `DeepWorkActionCapability`，并导出 `DEEPWORK_ACTION_CAPABILITIES`。当前 registry 明确四类建议动作：
+
+```json
+[
+  { "suggestedAction": "write_event", "writeEndpoint": "POST /api/workspace/events" },
+  { "suggestedAction": "run_synthesis", "requiredEventTypes": ["synthesis.started", "synthesis.completed", "artifact.updated"], "requiresHumanReview": true },
+  { "suggestedAction": "invite_actor", "requiredEventTypes": ["actor.joined", "intent.created"] },
+  { "suggestedAction": "review_patch", "writeEndpoint": "POST /api/workspace/events", "requiredEventTypes": ["patch.applied", "decision.accepted"], "requiresHumanReview": true }
+]
+```
+
+#### ✅ Workspace reader 返回 actionCapabilities
+
+**文件**：`src/app/api/workspace/route.ts`
+
+`GET /api/workspace?roomId=ROOM` 现在在 cache 与 live 两条路径都返回：
+
+```json
+{
+  "snapshot": {},
+  "projectKey": {},
+  "recentEvents": [],
+  "actionCapabilities": [],
+  "source": "cache"
+}
+```
+
+这让 Machine B 不需要读聊天记录，也不必先读源码，就能把 `snapshot.recommendedNextActions[].suggestedAction` 映射到可执行边界与治理边界。
+
+#### ✅ 文档同步 actionCapabilities 语义
+
+**文件**：`docs/protocol-agent-entrypoint.md`、`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md`、`docs/demo-quickstart.md`
+
+- agent entrypoint 中把 reader 闭环更新为 `snapshot`、`projectKey`、`recentEvents` 与 `actionCapabilities`
+- event contract 中新增 action capability registry 说明
+- dual-machine test 要求两台机器对比 `actionCapabilities[].suggestedAction`
+- quickstart 最小协议 curl 同时展示推荐动作与 action capability registry
+
+### 为什么这是方向正确的改动
+
+DeepWork 的协议价值不只是“告诉 agent 下一步该做什么”，而是让下一步动作也有 agent-readable semantics。`recommendedNextActions` 如果只有 prose 和 magic string，仍然容易退回“人读文档、agent 猜意图”的模式；`actionCapabilities` 把建议动作的 affordance 放进 reader API，使 shared state 更接近可治理、可接手、可跨机器解释的协议面。
+
+### 验证状态
+
+本轮已运行 `npm run build`，构建通过。改动为 TypeScript 类型、常量导出、workspace reader 响应字段和 Markdown 文档同步；未改变 writer 正常写入路径，也未改变 snapshot 推荐动作的生成逻辑。仍未执行真实 Supabase/Anthropic 端到端测试，因为自动环境没有可用真实服务配置与运行中房间。随后下一轮已在同一方向继续补充 `actorScope`，使 `invite-missing-roles` 也从 prose 变成结构化 actor coverage。
+
+### 下一步建议
+
+1. **P0 — 真实端到端演练**：按 `docs/demo-quickstart.md` 启动真实环境，验证 `GET /api/workspace` 返回 `actionCapabilities`，并确认两台机器看到同一 registry。
+2. **P1 — action capability 进一步协议化**：未来可以把每个 capability 的 input schema 或 example payload 加入 registry，使 agent 不读文档也能构造合法 writer 请求。
+3. **P1 — durable governance index**：当前 reader 仍依赖 latest 100 events；长期应将 open conflict、open patch、accepted decision、stale artifact 归约进持久索引。
+
+---
+
+## 第四十一轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮复查了 `README.md`、最新 `work-log.md`、`conversation-log.md`、`docs/demo-quickstart.md`、`docs/protocol-agent-entrypoint.md`、`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md`、`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/route.ts`、`src/app/api/workspace/events/route.ts` 与 `src/app/api/synthesize/route.ts`。当前主线仍然稳定：landing page demo 是 wedge，真正资产是 shared project state、semantic event stream、recommended governance actions、attribution 与可治理的跨机器接手协议。
+
+本轮发现一个小但方向重要的治理不一致：`resolve-open-conflicts` 与 `review-proposed-patches` 都已经显式带 `governancePolicy.rule: "human_review_required"`，但 stale artifact 场景下的 `resynthesize-after-round-*` 只有 `suggestedAction: "run_synthesis"`，没有治理策略。由于重新合成会改变可见共享产物，它也应该告诉 continuation agent：这是需要可信主持人/团队触发的 artifact-changing action，而不是 agent 可自行静默执行的后台清理。
+
+### 本轮完成的改动
+
+#### ✅ Stale synthesis action 增加 governance policy
+
+**文件**：`src/lib/room-state.ts`
+
+当最新合成后又出现新 intent 时，`recommendedNextActions` 中的 `resynthesize-after-round-*` 现在包含：
+
+```json
+{
+  "governancePolicy": {
+    "rule": "human_review_required",
+    "reason": "Re-synthesis changes the visible shared artifact and should be triggered by a trusted facilitator or explicit team action.",
+    "requiredEventTypes": ["synthesis.started", "synthesis.completed", "artifact.updated"],
+    "allowedActorTrustLevels": ["owner", "trusted"]
+  }
+}
+```
+
+#### ✅ 协议文档同步 stale artifact 治理语义
+
+**文件**：`docs/protocol-event-contract.md`、`docs/protocol-dual-machine-test.md`
+
+- 在 event contract 中补充：`resynthesize-after-round-*` 也使用 `human_review_required`，因为重新合成会改变共享 artifact。
+- 在 dual-machine test 的 Step 6 增加 stale-artifact action 验证：若合成后有新增 intent，两个机器应看到 `suggestedAction: "run_synthesis"`、`linkedEventIds` 指向新增 intents，且 `governancePolicy.rule` 为 `human_review_required`。
+
+### 为什么这是方向正确的改动
+
+DeepWork 不是让 agent 自动把所有事情做掉，而是把项目状态、意图、产物变更和治理边界显式暴露给人类与 agent。冲突和 patch 已经有治理策略；重新合成虽然看起来是“运行一次工具”，但实际会改变团队共同看的产物，也应该进入同一套 governable synthesis 语义。这个改动让 Machine B 读取 shared state 时既能知道“该重新合成”，也能知道“这一步需要可信触发/团队许可”。
+
+### 验证状态
+
+已运行 `npm run build`，构建通过。修改仅为 TypeScript 中一个 action 对象增加可选 `governancePolicy` 字段，并同步 Markdown 文档；既有 `DeepWorkRecommendedAction` 类型已经支持该字段，未引入新运行时依赖。仍未执行真实 Supabase/Anthropic 端到端测试，因为自动环境没有可用的真实服务配置与运行中房间。
+
+### 下一步建议
+
+1. **P0 — 真实端到端演练**：按 `docs/demo-quickstart.md` 走完整 demo，特别验证合成失败提示、归因常亮、双机器 conflict curl 闭环。
+2. **P1 — stale artifact 双机器验证**：在一次合成完成后新增一个 intent，确认 `GET /api/workspace` 返回 `resynthesize-after-round-*`，且带 `governancePolicy.rule: "human_review_required"`。
+3. **P1 — durable governance index 设计**：当前 reader 仍依赖 latest 100 events；长期应将 open conflict、open patch、accepted decision、stale artifact 归约进持久索引。
+
+---
+
 ## 第四十轮分析 — 2026/04/26
 
 ### 本轮扫描结论
