@@ -4,6 +4,40 @@
 
 ---
 
+## 第三十七轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮复查了 `README.md`、最新 `work-log.md`、`conversation-log.md`、`src/types/deepwork-protocol.ts`、`src/lib/room-state.ts`、`src/app/api/workspace/route.ts`、`src/app/api/workspace/events/route.ts`、`.env.local.example`、`docs/protocol-agent-entrypoint.md`、`docs/protocol-event-contract.md` 与 `docs/protocol-dual-machine-test.md`。当前代码与文档的主线一致：DeepWork 已经从 landing page demo 往 shared project state / intent protocol / semantic event stream / governable synthesis / attribution / cross-agent readability 方向推进。
+
+本轮发现一个低风险但反复出现的定位缺口：第三十四轮已经新增 `docs/protocol-agent-entrypoint.md`，第三十五、三十六轮也连续建议 README 增加防偏移定位，但 `README.md` 仍只停留在 hackathon demo 与“意图 + 合成”，没有把 protocol entrypoint 链给下一位 agent，也没有明确说明 DeepWork 不是 AI agent project management。这样下一位 Claude/OpenClaw 进入仓库时，仍可能先把它理解成 landing page generator 或多 agent 任务管理工具。
+
+### 本轮完成的改动
+
+#### ✅ README 增加协议定位与 agent 入口
+
+**文件**：`README.md`
+
+- 在核心命题下增加定位句：DeepWork 不是 prompt 工具、landing page 生成器，或 AI agent 的项目管理器；它要成为人类与 agent 共同协作时可读取、可归因、可治理的共享项目状态与意图协议。
+- 新增 `Agent 协议入口` 小节，链接 `docs/protocol-agent-entrypoint.md`。
+- 在入口说明中点明当前协议主线：project key、snapshot、semantic event stream、recommended governance actions、attribution，以及跨机器 continuation agent 可读的关闭路径。
+
+### 为什么这是方向正确的改动
+
+README 是外部人类和下一位 agent 最先读取的文件。把“不是 project management for AI agents，而是 shared semantic state / intent protocol”写进 README，可以降低产品叙事被 Multica-like execution layer、generic multi-agent orchestrator 或 landing-page demo 吸走的风险。新增 agent entrypoint 链接则让跨会话 continuation 更符合 DeepWork 自己的主张：协作状态应写在项目里，而不是藏在聊天记录里。
+
+### 验证状态
+
+本轮只修改 Markdown 文档，没有改运行时代码。已静态复核 README 链接路径存在，且与 `docs/protocol-agent-entrypoint.md`、协议类型和 workspace reader/writer 文档一致。未运行 `npm run build`，因为改动不影响 TypeScript/Next.js 编译；上一轮代码变更已记录构建通过。端到端 demo、Supabase/Anthropic 运行时路径和双机器 governance curl 测试仍未在本轮验证。
+
+### 下一步建议
+
+1. **P0 — demo 端到端演练**（4/29 前）：配置 `.env.local`，走完「加入 → 一键填充 → 合成 → 归因常亮 → 继续迭代」，特别验证合成失败提示。
+2. **P1 — 双机器 governance 测试**：POST `conflict.detected` → GET workspace → 看 `recommendedNextActions[0].priority === 'p0'` 且 `closeWith.field === 'decisionId'` → POST `decision.accepted` → 确认 unresolved 消失。
+3. **P1 — README 后续可补最小启动步骤**：如果目标读者从评审转向外部 contributor，可在 README 保持简短的前提下补充 setup 链接或 demo script 链接。
+
+---
+
 ## 第三十六轮分析 — 2026/04/26
 
 ### 本轮扫描结论

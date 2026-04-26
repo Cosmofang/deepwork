@@ -13,6 +13,12 @@ Deeplumen Hackathon 2025 · Present: 4/30 周三 下午 3:00
 传统协作工具的基本单位是「产物 + 评论」。  
 AI 时代的协作基本单位应该是「**意图 + 合成**」。
 
+DeepWork 不是 prompt 工具、landing page 生成器，或 AI agent 的项目管理器；它要成为人类与 agent 共同协作时可读取、可归因、可治理的共享项目状态与意图协议。
+
+## Agent 协议入口
+
+如果你是接手这个项目的 Claude、OpenClaw 或其他 agent，请先阅读 [`docs/protocol-agent-entrypoint.md`](docs/protocol-agent-entrypoint.md)。当前协议主线包括 project key、snapshot、semantic event stream、recommended governance actions、attribution，以及跨机器 continuation agent 可读的关闭路径。
+
 ## Demo 场景
 
 五名队员同时打开系统，目标是共同生成一个产品落地页。  
