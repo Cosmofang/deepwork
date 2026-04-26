@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeSectionName } from '@/lib/sections';
 import { syncRoomStateToWorkspace } from '@/lib/room-state';
-import { createClient } from '@/lib/supabase-server';
+import { createClient, getSupabaseServerConfigStatus } from '@/lib/supabase-server';
 
 export async function POST(req: NextRequest) {
   const body = await req.json() as {
@@ -18,6 +18,21 @@ export async function POST(req: NextRequest) {
 
   if (!roomId || !participantId || !content) {
     return NextResponse.json({ error: 'Invalid intent request' }, { status: 400 });
+  }
+
+  const configStatus = getSupabaseServerConfigStatus();
+  if (!configStatus.ready) {
+    return NextResponse.json(
+      {
+        error: 'Supabase server environment is not configured',
+        missing: {
+          NEXT_PUBLIC_SUPABASE_URL: !configStatus.hasUrl,
+          SUPABASE_SERVICE_ROLE_KEY: !configStatus.hasServiceRoleKey,
+        },
+        hint: 'Create .env.local from .env.local.example and set real Supabase values before submitting intents.',
+      },
+      { status: 503 }
+    );
   }
 
   const supabase = createClient();

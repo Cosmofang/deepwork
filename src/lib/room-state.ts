@@ -661,7 +661,7 @@ export function toDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWor
   return buildDeepWorkSnapshot(snapshot, recentEvents);
 }
 
-export async function syncRoomStateToWorkspace(roomId: string, event?: RoomStateEvent) {
+export async function syncRoomStateToWorkspace(roomId: string, event?: RoomStateEvent, priorEvents: RoomStateEvent[] = []) {
   const snapshot = await loadSnapshot(roomId);
   const roomDir = path.join(WORKSPACE_ROOT, sanitizeRoomId(roomId));
 
@@ -682,9 +682,12 @@ export async function syncRoomStateToWorkspace(roomId: string, event?: RoomState
     }
   }
 
-  if (event) {
-    const eventPayload = toSemanticEventPayload(roomId, event);
-    await fs.appendFile(path.join(roomDir, 'events.ndjson'), `${JSON.stringify(eventPayload)}\n`, 'utf8');
+  const events = event ? [...priorEvents, event] : priorEvents;
+  if (events.length > 0) {
+    const lines = events
+      .map(nextEvent => JSON.stringify(toSemanticEventPayload(roomId, nextEvent)))
+      .join('\n');
+    await fs.appendFile(path.join(roomDir, 'events.ndjson'), `${lines}\n`, 'utf8');
   }
 
   await writeProjectEntry(snapshot, roomDir);

@@ -91,6 +91,10 @@ npm run build
 
 ## 6. 故障排查
 
+### 环境变量未配置
+
+如果加入房间、填充 demo、提交意图、合成或读取 live workspace 时返回 `Supabase server environment is not configured` / `Anthropic API key is not configured`，说明本地 `.env.local` 还没有填真实服务配置。先从 `.env.local.example` 复制并填入 `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`、`SUPABASE_SERVICE_ROLE_KEY` 与 `ANTHROPIC_API_KEY`。没有这些配置时，页面静态加载和 TypeScript 检查可以通过，但无法完成真实多人 demo 或 Claude 合成。
+
 ### 合成失败（页面弹出红色提示）
 
 1. 检查 `ANTHROPIC_API_KEY` 是否填写正确

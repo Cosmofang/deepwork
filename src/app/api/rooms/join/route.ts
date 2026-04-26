@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ROLE_IDS, ROLES } from '@/lib/roles';
 import { syncRoomStateToWorkspace } from '@/lib/room-state';
-import { createClient } from '@/lib/supabase-server';
+import { createClient, getSupabaseServerConfigStatus } from '@/lib/supabase-server';
 import { RoleId } from '@/types';
 
 export async function POST(req: NextRequest) {
@@ -17,6 +17,21 @@ export async function POST(req: NextRequest) {
 
   if (!name || !roomCode || !role || !ROLE_IDS.includes(role)) {
     return NextResponse.json({ error: 'Invalid join request' }, { status: 400 });
+  }
+
+  const configStatus = getSupabaseServerConfigStatus();
+  if (!configStatus.ready) {
+    return NextResponse.json(
+      {
+        error: 'Supabase server environment is not configured',
+        missing: {
+          NEXT_PUBLIC_SUPABASE_URL: !configStatus.hasUrl,
+          SUPABASE_SERVICE_ROLE_KEY: !configStatus.hasServiceRoleKey,
+        },
+        hint: 'Create .env.local from .env.local.example and set real Supabase values before joining a room.',
+      },
+      { status: 503 }
+    );
   }
 
   const supabase = createClient();

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { syncRoomStateToWorkspace, toDeepWorkSnapshot } from '@/lib/room-state';
+import { getSupabaseServerConfigStatus } from '@/lib/supabase-server';
 import {
   DEEPWORK_ACTION_CAPABILITIES,
   DeepWorkSemanticEvent,
@@ -73,6 +74,22 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const configStatus = getSupabaseServerConfigStatus();
+    if (!configStatus.ready) {
+      return NextResponse.json(
+        {
+          error: 'Supabase server environment is not configured',
+          missing: {
+            NEXT_PUBLIC_SUPABASE_URL: !configStatus.hasUrl,
+            SUPABASE_SERVICE_ROLE_KEY: !configStatus.hasServiceRoleKey,
+          },
+          hint: 'Create .env.local from .env.local.example and set real Supabase values before running the live demo flow.',
+          actionCapabilities: DEEPWORK_ACTION_CAPABILITIES,
+        },
+        { status: 503, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
     await syncRoomStateToWorkspace(roomId);
     const [snapshotRaw, projectKeyRaw, recentEvents] = await Promise.all([
       fs.readFile(snapshotPath, 'utf8'),

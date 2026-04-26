@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase-server';
+import { createClient, getSupabaseServerConfigStatus } from '@/lib/supabase-server';
 import { ROLE_IDS, ROLES } from '@/lib/roles';
 import { normalizeSectionName } from '@/lib/sections';
 import { RoleId } from '@/types';
@@ -15,6 +15,21 @@ export async function POST(req: NextRequest) {
 
   if (!roomId) {
     return NextResponse.json({ error: 'roomId required' }, { status: 400 });
+  }
+
+  const configStatus = getSupabaseServerConfigStatus();
+  if (!configStatus.ready) {
+    return NextResponse.json(
+      {
+        error: 'Supabase server environment is not configured',
+        missing: {
+          NEXT_PUBLIC_SUPABASE_URL: !configStatus.hasUrl,
+          SUPABASE_SERVICE_ROLE_KEY: !configStatus.hasServiceRoleKey,
+        },
+        hint: 'Create .env.local from .env.local.example and set real Supabase values before populating demo data.',
+      },
+      { status: 503 }
+    );
   }
 
   const supabase = createClient();
@@ -143,8 +158,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  for (const event of workspaceEvents) {
-    await syncRoomStateToWorkspace(roomId, event);
+  // Sync workspace state once at the end instead of once per event.
+  // Each syncRoomStateToWorkspace call does 5 parallel Supabase reads (loadSnapshot);
+  // calling it for every intent (18+) makes populate take 10+ seconds.
+  // Write all individual events to events.ndjson in a single pass, then call sync once.
+  if (workspaceEvents.length > 0) {
+    await syncRoomStateToWorkspace(roomId, workspaceEvents[workspaceEvents.length - 1], workspaceEvents.slice(0, -1));
   }
 
   return NextResponse.json({ added: missingRoles.length, intents: totalIntents });

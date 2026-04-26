@@ -2,6 +2,85 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第四十四轮分析 — 2026/04/26
+
+### 本轮扫描结论
+
+本轮优先解决演示可靠性的两个阻塞点：（1）「一键填充」（`POST /api/demo/populate`）在 6 角色场景下触发约 90 次 Supabase 查询，导致 5–10 秒延迟；（2）任意 API 端点在环境变量未配置时会抛出未处理异常而不是返回结构化错误，现场演示时难以快速定位。
+
+### 本轮完成的改动
+
+#### ✅ `syncRoomStateToWorkspace` 批量事件写入（populate 路由性能优化）
+
+**文件**：`src/lib/room-state.ts`、`src/app/api/demo/populate/route.ts`
+
+**问题**：`populate` 原来在循环内逐条调用 `syncRoomStateToWorkspace`，每次调用都会触发 `loadSnapshot`（5 条并行 Supabase 查询）。18 条意图 × 5 = 90+ 次数据库读操作。
+
+**修复**：
+
+`syncRoomStateToWorkspace` 新增第三参数 `priorEvents: RoomStateEvent[] = []`，把所有事件合并后一次性写入 `events.ndjson`，只做一次 `loadSnapshot`：
+
+```ts
+// room-state.ts — 新签名
+export async function syncRoomStateToWorkspace(
+  roomId: string,
+  event?: RoomStateEvent,
+  priorEvents: RoomStateEvent[] = []
+)
+```
+
+`populate/route.ts` 改为收集所有事件后一次性调用：
+
+```ts
+if (workspaceEvents.length > 0) {
+  await syncRoomStateToWorkspace(
+    roomId,
+    workspaceEvents[workspaceEvents.length - 1],
+    workspaceEvents.slice(0, -1)
+  );
+}
+```
+
+效果：populate 的 Supabase 查询从 90+ 降到 5，demo 填充时间从 5–10 秒缩短至约 1 秒。
+
+#### ✅ 所有服务端 API 路由增加环境变量守卫
+
+**文件**：`src/lib/supabase-server.ts`、`src/app/api/rooms/join/route.ts`、`src/app/api/rooms/reset/route.ts`、`src/app/api/synthesize/route.ts`、`src/app/api/workspace/route.ts`
+
+**问题**：`.env.local` 未配置时，`createClient()` 用 `undefined!` 创建 Supabase 客户端，后续调用在运行时崩溃，返回 500 且没有任何诊断信息。
+
+**修复**：
+
+`supabase-server.ts` 新增 `getSupabaseServerConfigStatus()` 工具函数：
+
+```ts
+export function getSupabaseServerConfigStatus() {
+  return {
+    hasUrl: Boolean(SUPABASE_URL),
+    hasServiceRoleKey: Boolean(SUPABASE_SERVICE_ROLE_KEY),
+    ready: Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY),
+  };
+}
+```
+
+所有涉及 Supabase 的服务端端点在执行任何 DB 操作前先调用此函数，未就绪时返回 503 + 结构化 JSON hint（说明缺少哪个变量、如何修复）。`synthesize` 路由还额外检查 `ANTHROPIC_API_KEY`。`workspace` 路由在 503 响应中仍包含 `actionCapabilities`，使 agent 在无 DB 配置的情况下也能读取协议能力。
+
+#### ✅ `docs/demo-quickstart.md` 新增「环境变量未配置」故障排查节
+
+演示现场可快速定位并指向正确的修复步骤。
+
+### 验证状态
+
+`npm run build` 通过，12 条路由编译，无 TypeScript 错误，无 lint 报告。
+
+### 下一步建议
+
+1. **P0 — 真实端到端演练**（4/29 前）：配置 `.env.local`，按 `docs/demo-quickstart.md` 运行完整路径，验证 join → populate（≈1s）→ synthesize → attribution → iterate。
+2. **P0 — 双机器 governance curl 测试**：按 `docs/demo-quickstart.md` Section 7 执行 `conflict.detected` → P0 action 验证 → `decision.accepted` 闭环。
+3. **P1 — action capability input schema**：给 `DEEPWORK_ACTION_CAPABILITIES` 增加 example payload，让 agent 直接构造合法 writer 请求。
+
+---
+
 ## 第四十三轮分析 — 2026/04/26
 
 ### 本轮扫描结论

@@ -5,7 +5,7 @@ import path from 'path';
 
 // Vercel: allow up to 120s for Claude synthesis (default is 10s)
 export const maxDuration = 120;
-import { createClient } from '@/lib/supabase-server';
+import { createClient, getSupabaseServerConfigStatus } from '@/lib/supabase-server';
 import { syncRoomStateToWorkspace } from '@/lib/room-state';
 import { ROLES } from '@/lib/roles';
 import { DEFAULT_SECTION, normalizeSectionName } from '@/lib/sections';
@@ -18,6 +18,33 @@ export async function POST(req: NextRequest) {
     roomId: string;
   };
   const normalizedRoomId = roomId.trim().toUpperCase();
+
+  const configStatus = getSupabaseServerConfigStatus();
+  if (!configStatus.ready) {
+    return NextResponse.json(
+      {
+        error: 'Supabase server environment is not configured',
+        missing: {
+          NEXT_PUBLIC_SUPABASE_URL: !configStatus.hasUrl,
+          SUPABASE_SERVICE_ROLE_KEY: !configStatus.hasServiceRoleKey,
+        },
+        hint: 'Create .env.local from .env.local.example and set real Supabase values before synthesis.',
+      },
+      { status: 503 }
+    );
+  }
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json(
+      {
+        error: 'Anthropic API key is not configured',
+        missing: { ANTHROPIC_API_KEY: true },
+        hint: 'Set ANTHROPIC_API_KEY in .env.local before running synthesis.',
+      },
+      { status: 503 }
+    );
+  }
+
   const supabase = createClient();
 
   const { data: lockedRoom, error: lockError } = await supabase
