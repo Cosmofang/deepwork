@@ -2,6 +2,60 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第五十五轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+基于第五十四轮优先级列表，P0 项（使用真实 `.env.local` 运行完整演示路径、执行治理闭环脚本）需要真实 Supabase/Anthropic 凭据，不在自主改动范围内。选择最高影响的可实现项：合成进度暴露（P1）。
+
+### 问题分析
+
+`src/app/room/[id]/page.tsx` 中的合成等待覆盖层（synthesis overlay）在整个 20-40 秒合成期间只显示静态文字 "通常 30–90 秒 · 完成后自动跳转"。演示场景中，这 20-40 秒是展示 DeepWork "多角色意图→AI 合成→产物" 核心工作流的关键时刻，静态 spinner 没有利用这段时间向观众传递任何语义信息。
+
+还存在一个细节错误：第五十四轮已将合成模型切换为 claude-sonnet-4-6，预期耗时降至 20-40 秒，但覆盖层底部文字仍写 "通常 30–90 秒"，与实际不符。
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/page.tsx` — 合成阶段标签 + 实时计时器
+
+**改动内容**：
+
+1. 在组件外部添加 `SYNTHESIS_PHASES` 常量，5 个阶段按触发秒数分桶：
+   - 0s: 读取各角色意图...
+   - 5s: 分析板块冲突与共识...
+   - 12s: 生成页面结构与文案...
+   - 22s: 优化视觉与排版细节...
+   - 32s: 校验归因，写入结果...
+
+2. 添加 `synthesisStartRef`（记录合成开始时间戳）和 `synthesisElapsed`（已过秒数）状态。
+
+3. 添加 `useEffect`：当 `synthesizing || roomStatus === 'synthesizing'` 为真时启动 1s 间隔计时器；合成结束时自动清零。同时覆盖主动触发者（synthesizing=true）和被动观看者（roomStatus='synthesizing'），两种场景均有阶段反馈。
+
+4. 将覆盖层底部的静态文字替换为：
+   - 上行：当前阶段标签（随时间推进自动切换，带 `transition-all duration-700` 过渡）
+   - 下行：已过秒数 + "完成后自动跳转"
+
+**演示效果提升**：观众在等待期间看到阶段标签逐步变化，与 spinner 和角色 pills 共同构成一个有节奏的"目击时刻"，而不是静默等待。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`/room/[id]` bundle 7.76 kB → 8.04 kB（+280 bytes，新增 phases 常量和 timer hook）。
+
+### 当前已知限制（未改动）
+
+- governance index 只归约最近 100 条 NDJSON 事件
+- `.deepwork/` 文件本地单机落盘
+- 阶段标签是客户端时间估算，不反映真实服务端进度（合成慢于预期时标签会停在最后一档）
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（`docs/demo-quickstart.md` 清单）
+- **P0**：用真实 roomId 执行 `protocol-agent-entrypoint.md` 中的最小治理闭环验证脚本
+- **P1**：governance index 持久化（超过 100 条 NDJSON 事件后不丢失开放冲突和 patch）
+- **P2**：合成进度真正暴露（SSE 或 Anthropic streaming），阶段标签改为服务端驱动
+
+---
+
 ## 第五十四轮分析 — 2026/04/27
 
 ### 本轮扫描结论

@@ -26,6 +26,14 @@ function mergeSections(existing: string[], additions: string[]) {
 
 type MobileTab = 'intent' | 'flow' | 'sections';
 
+const SYNTHESIS_PHASES = [
+  { after: 0,  label: '读取各角色意图...' },
+  { after: 5,  label: '分析板块冲突与共识...' },
+  { after: 12, label: '生成页面结构与文案...' },
+  { after: 22, label: '优化视觉与排版细节...' },
+  { after: 32, label: '校验归因，写入结果...' },
+] as const;
+
 export default function RoomPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -48,6 +56,8 @@ export default function RoomPage() {
   const [mobileTab, setMobileTab] = useState<MobileTab>('flow');
   const intentsEndRef = useRef<HTMLDivElement>(null);
   const prevRoomStatusRef = useRef<'collecting' | 'synthesizing' | 'done'>('collecting');
+  const synthesisStartRef = useRef<number | null>(null);
+  const [synthesisElapsed, setSynthesisElapsed] = useState(0);
   const supabase = createClient();
 
   const copyRoomCode = () => {
@@ -298,6 +308,22 @@ export default function RoomPage() {
     }
   };
 
+  // Drive the per-second elapsed counter shown in the synthesis overlay.
+  // Works for both the user who triggered synthesis and passive room viewers.
+  useEffect(() => {
+    const active = synthesizing || roomStatus === 'synthesizing';
+    if (!active) {
+      synthesisStartRef.current = null;
+      setSynthesisElapsed(0);
+      return;
+    }
+    if (synthesisStartRef.current === null) synthesisStartRef.current = Date.now();
+    const iv = setInterval(() => {
+      setSynthesisElapsed(Math.floor((Date.now() - synthesisStartRef.current!) / 1000));
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [synthesizing, roomStatus]);
+
   const role = participant ? ROLES[participant.role as RoleId] : null;
   const filteredIntents = sectionFilter === 'all'
     ? intents
@@ -317,6 +343,8 @@ export default function RoomPage() {
     };
   });
   const totalNewCount = newIntentIds.length;
+
+  const synthesisPhase = SYNTHESIS_PHASES.filter(p => synthesisElapsed >= p.after).at(-1)!;
 
   // All contributing role IDs (deduped), used in the synthesis overlay
   const contributingRoleIds = Array.from(
@@ -423,7 +451,10 @@ export default function RoomPage() {
               </div>
             )}
 
-            <p className="text-xs text-gray-700">通常 30–90 秒 · 完成后自动跳转</p>
+            <div className="space-y-1.5">
+              <p className="text-xs text-gray-400 transition-all duration-700">{synthesisPhase.label}</p>
+              <p className="text-xs text-gray-700">{synthesisElapsed}s · 完成后自动跳转</p>
+            </div>
           </div>
         </div>
       )}
