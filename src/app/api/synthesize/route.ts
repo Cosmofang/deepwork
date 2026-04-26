@@ -80,21 +80,122 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No intents found' }, { status: 400 });
   }
 
+  // Fetch previous synthesis result BEFORE the Anthropic call so we can:
+  // 1. Know the current round number (for intent tagging and prompt context)
+  // 2. Use previous attribution map to guide incremental synthesis
+  // 3. Tag intents submitted after the previous synthesis as "new this round"
+  const { data: prevResults } = await supabase
+    .from('synthesis_results')
+    .select('round, created_at, attribution_map, conflicts_resolved')
+    .eq('room_id', normalizedRoomId)
+    .order('round', { ascending: false })
+    .limit(1);
+
+  const prevResult = prevResults?.[0] ?? null;
+  const currentRound = (prevResult?.round ?? 0) + 1;
+  const isIteration = currentRound > 1;
+  const prevSynthesisAt = prevResult?.created_at ? new Date(prevResult.created_at as string) : null;
+
   await syncRoomStateToWorkspace(normalizedRoomId, {
     type: 'synthesis_started',
-    summary: '开始合成最新共享结果',
+    summary: isIteration ? `开始第 ${currentRound} 轮迭代合成` : '开始合成最新共享结果',
   });
 
-  const intentLines = intents
-    .map(i => {
-      const r = ROLES[i.participant?.role as RoleId];
-      const section = normalizeSectionName(i.section || DEFAULT_SECTION);
-  return `[${r?.label || '未知角色'}][板块: ${section}]: "${i.content}"`;
-    })
-    .join('\n');
+  const buildIntentLine = (i: typeof intents[0], isNew: boolean) => {
+    const r = ROLES[i.participant?.role as RoleId];
+    const section = normalizeSectionName(i.section || DEFAULT_SECTION);
+    const tag = isNew ? '【本轮新增】' : '';
+    return `${tag}[${r?.label || '未知角色'}][板块: ${section}]: "${i.content}"`;
+  };
+
+  const newIntents = prevSynthesisAt
+    ? intents.filter(i => new Date(i.created_at as string) > prevSynthesisAt)
+    : intents;
+  const prevIntents = prevSynthesisAt
+    ? intents.filter(i => new Date(i.created_at as string) <= prevSynthesisAt)
+    : [];
+
+  const intentLines = [
+    ...prevIntents.map(i => buildIntentLine(i, false)),
+    ...newIntents.map(i => buildIntentLine(i, true)),
+  ].join('\n');
+
+  const iterationContext = isIteration && prevResult
+    ? `
+## 上一轮合成结论（第 ${currentRound - 1} 轮，请在此基础上迭代）
+
+### 上一轮归因摘要
+${JSON.stringify(prevResult.attribution_map, null, 2)}
+
+### 上一轮已解决的冲突
+${((prevResult.conflicts_resolved as string[]) ?? []).map(c => `- ${c}`).join('\n') || '（无冲突）'}
+
+**迭代要求**：
+- 优先处理标注「本轮新增」的意图，这些是本轮迭代的重点
+- 保持上一轮已建立的整体视觉风格和品牌调性
+- 若新增意图与已解决冲突有出入，以新意图为准并记录变化
+- 上一轮没有被本轮意图涉及的板块可以保留原有决策
+`
+    : '';
 
   try {
-    const prompt = `你是一个多角色协作设计合成师。你的任务是将一个团队的意图合成为一个高质量产品落地页 HTML。
+    const prompt = isIteration
+      ? `你是一个多角色协作设计合成师。这是第 ${currentRound} 轮迭代合成，你的任务是在上一轮产物基础上，重点处理本轮新增意图，生成更新后的产品落地页 HTML。
+${iterationContext}
+## 本轮所有意图（标注了「本轮新增」的是新增加的）
+${intentLines}
+
+## HTML 生成规范
+
+### 技术要求（严格遵守）
+- 生成完整的 <!DOCTYPE html> HTML 文件，**不使用任何外部 CSS/JS 框架或 CDN**
+- 所有样式必须写在 <head> 内的 <style> 标签中，使用标准 CSS
+- 不得有任何外部 <script src> 或 <link rel="stylesheet">（会在 iframe 沙盒中失效）
+- 使用 CSS 自定义属性（变量）管理颜色/间距，便于维护
+
+### 视觉风格
+- 背景：#0a0a0a 或 #111111（深色）
+- 文字：主色 #ffffff，次色 rgba(255,255,255,0.6)，弱色 rgba(255,255,255,0.3)
+- 强调色：#a855f7（紫）、#3b82f6（蓝）、#22c55e（绿）可用于按钮/高亮
+- 字体：font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif
+- 使用 CSS Grid 和 Flexbox 布局，不用浮动
+- 卡片：border: 1px solid rgba(255,255,255,0.1)，背景 rgba(255,255,255,0.04)，圆角 12px
+- 按钮（主要）：background: #ffffff; color: #000; padding: 12px 28px; border-radius: 8px
+- 足够的 padding 和 section 间距（section padding: 80px 0 最少）
+
+### 结构要求
+- 每个视觉区块是独立的 <section> 标签
+- **关键要求**：每个 <section> 必须携带 data-source 属性，值为对该区块贡献最多的角色 ID
+  - 合法值：designer | copywriter | developer | product | marketing | employee
+  - 示例：<section data-source="designer" style="...">
+- 区块顺序：Hero → 价值主张 → 功能亮点 → 社交证明 → 定价 → FAQ → CTA
+- 页面需有 <header>（含导航/logo）和 <footer>（含版权信息）
+- 文案全部用中文
+
+### 「整体」板块意图处理
+- 板块标注为「整体」的意图代表对**整个页面**的全局要求（如整体风格、品牌调性、整体可信度等）
+- 这些意图**不对应某个特定 section**，而应体现在页面的多处：整体配色、footer 信息、header 设计、视觉语言等
+- 贡献「整体」意图的角色在 attributionMap 中可记录为「整体风格」key，data-source 可赋给 <header> 或 <footer>
+
+### 冲突处理
+- 若同一板块存在矛盾意图，优先找折中方案，记录解决方式
+
+### 归因规则
+- attributionMap 中每个 key 为区块标题（如「首屏 Hero」），value 为贡献最多的角色 ID
+
+## 输出格式
+
+返回严格的 JSON（禁止 markdown 代码块，禁止任何前缀文字，直接从 { 开始）：
+{
+  "html": "<!DOCTYPE html>...",
+  "attributionMap": {
+    "首屏 Hero": "designer",
+    "价值主张": "copywriter"
+  },
+  "conflictsDetected": ["冲突描述"],
+  "conflictsResolved": ["解决方式"]
+}`
+      : `你是一个多角色协作设计合成师。你的任务是将一个团队的意图合成为一个高质量产品落地页 HTML。
 
 ## 团队意图（按板块分组）
 ${intentLines}
@@ -208,14 +309,9 @@ ${intentLines}
       return NextResponse.json({ error: 'Invalid response from Claude' }, { status: 500 });
     }
 
-    const { count } = await supabase
-      .from('synthesis_results')
-      .select('*', { count: 'exact', head: true })
-      .eq('room_id', normalizedRoomId);
-
     const { error } = await supabase.from('synthesis_results').insert({
       room_id: normalizedRoomId,
-      round: (count ?? 0) + 1,
+      round: currentRound,
       html_content: output.html,
       attribution_map: output.attributionMap,
       conflicts_resolved: output.conflictsResolved,
@@ -228,7 +324,7 @@ ${intentLines}
 
     await supabase.from('rooms').update({ status: 'done' }).eq('id', normalizedRoomId);
 
-    const round = (count ?? 0) + 1;
+    const round = currentRound;
 
     // Batch synthesis_completed + artifact.updated + any unresolved conflict events into
     // one syncRoomStateToWorkspace call so loadSnapshot (5 Supabase queries) runs once

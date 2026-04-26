@@ -2,6 +2,81 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第五十八轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 57 的迭代 UX 改进（round badge、意图分组）让演示视觉上清晰了，但有一个更深层的问题：**合成逻辑完全没有"第几轮"的感知**。Round 2 合成时，Claude 收到的提示与 Round 1 完全相同——所有意图混在一起，没有标记新旧，没有上一轮的归因决策作为参考。演示时说"在 Round 1 基础上迭代"，但 AI 实际上是从零重新合成。
+
+### 问题分析
+
+- `synthesize/route.ts` 中没有在 Anthropic 调用前读取之前的合成记录
+- `count` 查询在 Anthropic 调用后才发生，纯粹用于写入轮次编号
+- 意图列表全量传入，无法让 Claude 区分哪些是本轮新增的关注点
+- 上一轮已解决的冲突、已建立的归因方案没有传入，Claude 可能重新做出不同决策
+
+### 本轮完成的改动
+
+#### ✅ `src/app/api/synthesize/route.ts` — 上下文感知迭代合成
+
+**核心变化：在 Anthropic 调用前获取上一轮合成结果**
+
+新增查询（在 `syncRoomStateToWorkspace` 调用之前）：
+```ts
+const { data: prevResults } = await supabase
+  .from('synthesis_results')
+  .select('round, created_at, attribution_map, conflicts_resolved')
+  .eq('room_id', normalizedRoomId)
+  .order('round', { ascending: false })
+  .limit(1);
+
+const prevResult = prevResults?.[0] ?? null;
+const currentRound = (prevResult?.round ?? 0) + 1;
+const isIteration = currentRound > 1;
+const prevSynthesisAt = prevResult?.created_at ? new Date(prevResult.created_at) : null;
+```
+
+**意图标注**
+
+利用 `prevSynthesisAt` 时间戳将意图分为两组（与 Cycle 57 的客户端分组逻辑一致）：
+- `created_at ≤ prevSynthesisAt` → 历史意图（不加标注）
+- `created_at > prevSynthesisAt` → 新意图（加 `【本轮新增】` 前缀）
+
+**迭代专用 prompt**
+
+当 `isIteration === true` 时，使用完全不同的 prompt：
+- 明确告知 Claude "这是第 N 轮迭代合成"
+- 传入上一轮的 `attribution_map`（JSON 格式）
+- 传入上一轮的 `conflicts_resolved` 列表
+- 指令"优先处理标注「本轮新增」的意图，保持上一轮已建立的视觉风格"
+- 首次合成（Round 1）继续使用原有 prompt，保持完全向后兼容
+
+**冗余查询消除**
+
+原来在 Anthropic 调用之后还有一次 `count` 查询来计算轮次，现在轮次已经在调用前确定，直接用 `currentRound` 写入 `synthesis_results`，去掉了那次额外查询。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`/api/synthesize` bundle 大小不变（纯 server-side）。
+
+### 为什么这是方向正确的改动
+
+演示叙事："我们在第 1 轮的基础上，加入了新的意图，让 AI 再迭代一遍"。改动前，这是一个谎言——AI 每次都从零开始。改动后，AI 真的知道"上一轮做了什么决定"，并且能区分哪些意图是本轮新增的。这让迭代叙事从视觉包装变成了真实的产品行为。
+
+### 当前已知限制（未改动）
+
+- 迭代 prompt 不传入上一轮完整 HTML（避免 token 超支），仅传 attributionMap 和 conflictsResolved
+- 合成进度仍为客户端时间估算，非服务端驱动
+- `.deepwork/` 文件本地单机落盘
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径，测试 Round 1 → 继续迭代 → Round 2 的迭代提升效果
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：考虑在迭代 prompt 中传入上一轮 HTML（可以截断到前 8KB 的 `<style>` + `<header>` + 首个 `<section>` 作为视觉基准参考）
+
+---
+
 ## 第五十七轮分析 — 2026/04/27
 
 ### 本轮扫描结论
