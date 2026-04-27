@@ -2,203 +2,156 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ROLES, ROLE_IDS } from '@/lib/roles';
-import { RoleId } from '@/types';
+
+type Mode = 'panel' | 'agent';
 
 export default function EntryPage() {
   const router = useRouter();
   const [name, setName] = useState('');
-  const [role, setRole] = useState<RoleId | null>(null);
-  const [roomCode, setRoomCode] = useState('');
+  const [projectCode, setProjectCode] = useState('');
+  const [mode, setMode] = useState<Mode>('panel');
+  const [roleDescription, setRoleDescription] = useState('');
   const [loading, setLoading] = useState(false);
-  const [soloLoading, setSoloLoading] = useState(false);
   const [error, setError] = useState('');
 
   const generateCode = () => {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setRoomCode(code);
+    setProjectCode(Math.random().toString(36).substring(2, 8).toUpperCase());
   };
 
-  const handleSoloDemo = async () => {
-    setSoloLoading(true);
-    setError('');
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    try {
-      const res = await fetch('/api/rooms/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: '演示者', role: 'product', roomCode: code }),
-      });
-      if (!res.ok) { setSoloLoading(false); setError('创建失败，请重试'); return; }
-      const data = await res.json() as { participant?: { id: string } };
-      if (!data.participant?.id) { setSoloLoading(false); setError('创建失败，请重试'); return; }
-      localStorage.setItem(`participant_id:${code}`, data.participant.id);
-      localStorage.setItem('participant_room_id', code);
-      router.push(`/room/${code}`);
-    } catch {
-      setSoloLoading(false);
-      setError('创建失败，请重试');
-    }
-  };
-
-  const handleJoin = async () => {
-    if (!name.trim() || !role || !roomCode.trim()) return;
+  const handleEnter = async () => {
+    if (!name.trim() || !projectCode.trim()) return;
     setLoading(true);
     setError('');
 
-    const code = roomCode.trim().toUpperCase();
+    const code = projectCode.trim().toUpperCase();
     try {
-      const res = await fetch('/api/rooms/join', {
+      const res = await fetch('/api/projects/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          role,
-          roomCode: code,
-        }),
+        body: JSON.stringify({ projectCode: code, name: name.trim(), mode, roleDescription }),
       });
-
-      if (!res.ok) {
-        setError('加入失败，请重试');
+      const data = await res.json() as { projectId?: string; agentId?: string; error?: string };
+      if (!res.ok || !data.projectId) {
+        setError(data.error ?? '加入失败，请重试');
         setLoading(false);
         return;
       }
-
-      const data = await res.json() as { participant?: { id: string } };
-      if (!data.participant?.id) {
-        setError('加入失败，请重试');
-        setLoading(false);
-        return;
+      if (mode === 'agent' && data.agentId) {
+        localStorage.setItem(`agent_id:${code}`, data.agentId);
       }
-
-      localStorage.setItem(`participant_id:${code}`, data.participant.id);
-      localStorage.setItem('participant_room_id', code);
-      router.push(`/room/${code}`);
+      localStorage.setItem('project_id', code);
+      localStorage.setItem('user_name', name.trim());
+      router.push(mode === 'agent' ? `/project/${code}/work` : `/project/${code}`);
     } catch {
-      setError('加入失败，请重试');
+      setError('连接失败，请重试');
       setLoading(false);
     }
   };
 
-  const canJoin = name.trim() && role && roomCode.trim() && !loading;
+  const canEnter = name.trim() && projectCode.trim() && !loading;
 
   return (
-    <div className="min-h-screen bg-[var(--c-bg)] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#080808] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
+        {/* Header */}
         <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold tracking-tight mb-2 text-[var(--c-text-1)]">DeepWork</h1>
-          <p className="text-[var(--c-text-3)] text-sm mb-1">6 个角色各提意图</p>
-          <p className="text-[var(--c-text-5)] text-xs mb-6">Claude 60 秒内将所有意图合成为一个产品落地页，并标注每个区块由谁主导</p>
-          <div className="flex items-center justify-center gap-6 text-xs text-[var(--c-text-5)]">
-            <div className="flex flex-col items-center gap-1.5">
-              <span className="w-7 h-7 rounded-full bg-[var(--c-overlay)] border border-[var(--c-border-3)] flex items-center justify-center text-[var(--c-text-4)] font-mono">1</span>
-              <span>各选角色加入</span>
-            </div>
-            <div className="w-8 h-px bg-black/[0.08]" />
-            <div className="flex flex-col items-center gap-1.5">
-              <span className="w-7 h-7 rounded-full bg-[var(--c-overlay)] border border-[var(--c-border-3)] flex items-center justify-center text-[var(--c-text-4)] font-mono">2</span>
-              <span>提交产品意图</span>
-            </div>
-            <div className="w-8 h-px bg-black/[0.08]" />
-            <div className="flex flex-col items-center gap-1.5">
-              <span className="w-7 h-7 rounded-full bg-[var(--c-overlay)] border border-[var(--c-border-3)] flex items-center justify-center text-[var(--c-text-4)] font-mono">3</span>
-              <span>Claude 合成落地页</span>
-            </div>
-          </div>
+          <h1 className="text-4xl font-bold tracking-tight mb-2 text-white">DeepWork</h1>
+          <p className="text-white/40 text-sm">发布需求 · Agent 并行执行 · 成品实时上墙</p>
         </div>
 
-        <div className="bg-[var(--c-surface)] border border-[var(--c-border-3)] rounded-2xl p-6 space-y-5 shadow-sm">
+        {/* Mode toggle */}
+        <div className="flex rounded-xl border border-white/10 p-1 mb-6 bg-white/[0.03]">
+          {(['panel', 'agent'] as Mode[]).map(m => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-all"
+              style={mode === m
+                ? { background: m === 'agent' ? 'rgba(168,85,247,0.2)' : 'rgba(59,130,246,0.2)', color: m === 'agent' ? '#a855f7' : '#3b82f6', border: `1px solid ${m === 'agent' ? 'rgba(168,85,247,0.4)' : 'rgba(59,130,246,0.4)'}` }
+                : { color: 'rgba(255,255,255,0.35)' }
+              }
+            >
+              {m === 'panel' ? '📋 面板用户' : '⚡ Agent 工作者'}
+            </button>
+          ))}
+        </div>
+
+        <p className="text-white/30 text-xs text-center mb-5">
+          {mode === 'panel'
+            ? '发布需求，实时查看所有 Agent 的成品'
+            : '连接后自动接收需求，独立生成成品并推送到面板'}
+        </p>
+
+        {/* Form */}
+        <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 space-y-4">
           <div>
-            <label className="text-xs text-[var(--c-text-4)] uppercase tracking-wider mb-2 block">你的名字</label>
+            <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">
+              {mode === 'agent' ? 'Agent 名称' : '你的名字'}
+            </label>
             <input
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && canJoin && handleJoin()}
-              placeholder="输入名字..."
-              className="w-full bg-[var(--c-bg)] border border-[var(--c-border-3)] rounded-xl px-4 py-3 text-[var(--c-text-1)] placeholder-[var(--c-text-6)] focus:outline-none focus:border-[var(--c-border-5)] transition-colors"
+              onKeyDown={e => e.key === 'Enter' && canEnter && handleEnter()}
+              placeholder={mode === 'agent' ? 'Agent-设计师 / Agent-文案...' : '输入名字...'}
+              className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-white/25 transition-colors text-sm"
             />
           </div>
 
-          <div>
-            <label className="text-xs text-[var(--c-text-4)] uppercase tracking-wider mb-2 block">你的角色</label>
-            <div className="grid grid-cols-3 gap-2">
-              {ROLE_IDS.map(id => {
-                const r = ROLES[id];
-                const selected = role === id;
-                return (
-                  <button
-                    key={id}
-                    onClick={() => setRole(id)}
-                    className="py-2.5 px-3 rounded-xl text-sm font-medium transition-all border"
-                    style={
-                      selected
-                        ? { borderColor: r.color, color: r.color, backgroundColor: `${r.color}18` }
-                        : { borderColor: 'var(--c-border-3)', color: 'var(--c-text-4)', backgroundColor: 'transparent' }
-                    }
-                  >
-                    <span className="block">{r.label}</span>
-                    <span className="mt-1 block text-[10px] font-normal leading-snug opacity-70">{r.typical}</span>
-                  </button>
-                );
-              })}
+          {mode === 'agent' && (
+            <div>
+              <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">专长描述（可选）</label>
+              <input
+                type="text"
+                value={roleDescription}
+                onChange={e => setRoleDescription(e.target.value)}
+                placeholder="前端开发、UI设计、文案策划..."
+                className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-white/25 transition-colors text-sm"
+              />
             </div>
-          </div>
+          )}
 
           <div>
-            <label className="text-xs text-[var(--c-text-4)] uppercase tracking-wider mb-2 block">房间代码</label>
+            <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">项目代码</label>
             <div className="flex gap-2">
               <input
                 type="text"
-                value={roomCode}
-                onChange={e => setRoomCode(e.target.value.toUpperCase())}
+                value={projectCode}
+                onChange={e => setProjectCode(e.target.value.toUpperCase())}
+                onKeyDown={e => e.key === 'Enter' && canEnter && handleEnter()}
                 placeholder="输入或生成"
                 maxLength={8}
-                className="flex-1 bg-[var(--c-bg)] border border-[var(--c-border-3)] rounded-xl px-4 py-3 text-[var(--c-text-1)] placeholder-[var(--c-text-6)] focus:outline-none focus:border-[var(--c-border-5)] transition-colors font-mono tracking-widest"
+                className="flex-1 bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-white/25 transition-colors font-mono tracking-widest text-sm"
               />
               <button
                 onClick={generateCode}
-                className="px-4 py-3 bg-[var(--c-bg)] border border-[var(--c-border-3)] rounded-xl text-[var(--c-text-4)] hover:text-[var(--c-text-1)] hover:border-black/20 transition-colors text-sm whitespace-nowrap"
+                className="px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white/40 hover:text-white/70 hover:border-white/20 transition-colors text-sm whitespace-nowrap"
               >
                 生成
               </button>
             </div>
-            <p className="text-[var(--c-text-6)] text-xs mt-1.5">主持人点「生成」创建房间码，分享给其他5人，大家用同一个码进入同一个房间</p>
+            <p className="text-white/20 text-xs mt-1.5">
+              {mode === 'panel' ? '面板用户生成代码，分享给 Agent 工作者' : '输入面板用户给你的项目代码'}
+            </p>
           </div>
 
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          {error && <p className="text-red-400 text-sm">{error}</p>}
 
           <button
-            onClick={handleJoin}
-            disabled={!canJoin}
-            className="w-full py-3.5 rounded-xl font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-[var(--c-btn-bg)] text-[var(--c-btn-text)] hover:bg-[var(--c-btn-hover)]"
+            onClick={handleEnter}
+            disabled={!canEnter}
+            className="w-full py-3.5 rounded-xl font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+            style={mode === 'agent'
+              ? { background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: '#a855f7' }
+              : { background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.4)', color: '#3b82f6' }
+            }
           >
-            {loading ? '加入中...' : '进入房间 →'}
+            {loading ? '连接中...' : mode === 'panel' ? '进入面板 →' : '开始工作 →'}
           </button>
-
-          <div className="relative flex items-center gap-3 pt-1">
-            <div className="flex-1 h-px bg-[var(--c-border-1)]" />
-            <span className="text-[var(--c-text-6)] text-[10px]">或</span>
-            <div className="flex-1 h-px bg-[var(--c-border-1)]" />
-          </div>
-
-          <button
-            onClick={handleSoloDemo}
-            disabled={soloLoading}
-            className="w-full py-2.5 rounded-xl text-sm transition-all disabled:opacity-40"
-            style={{ backgroundColor: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.18)', color: 'rgba(109,40,217,0.9)' }}
-            onMouseEnter={e => { if (!soloLoading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(124,58,237,0.1)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(124,58,237,0.06)'; }}
-          >
-            {soloLoading ? '创建演示房间中...' : '⚡ Solo 演示 — 一人即可体验全流程'}
-          </button>
-          <p className="text-[var(--c-text-6)] text-[10px] text-center -mt-2">
-            自动创建房间，进入后点「一键填充」即可看到 6 角色意图 + AI 合成效果
-          </p>
         </div>
 
-        <p className="text-center text-[var(--c-text-6)] text-xs mt-4">
-          Deeplumen Hackathon 2025 · 4/30 演示
+        <p className="text-center text-white/15 text-xs mt-4">
+          Deeplumen · DeepWork v2
         </p>
       </div>
     </div>
