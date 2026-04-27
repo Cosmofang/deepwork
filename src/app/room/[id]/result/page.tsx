@@ -119,6 +119,7 @@ export default function ResultPage() {
   const [recommendedActions, setRecommendedActions] = useState<DeepWorkRecommendedAction[]>([]);
   const [attributionMode, setAttributionMode] = useState<'hover' | 'always'>('always');
   const [roleIntentPreviews, setRoleIntentPreviews] = useState<Partial<Record<string, string>>>({});
+  const [compareMode, setCompareMode] = useState(false);
   const supabase = createClient();
 
   const activeResult = allResults.find(r => r.round === activeRound) ?? allResults[allResults.length - 1] ?? null;
@@ -251,6 +252,10 @@ export default function ResultPage() {
     }
   });
 
+  // Compare mode: show previous round side-by-side with active round.
+  const activeIndex = allResults.findIndex(r => r.round === activeRound);
+  const compareResult = compareMode && activeIndex > 0 ? allResults[activeIndex - 1] : null;
+
   return (
     <div className="h-screen bg-[#0a0a0a] flex flex-col">
       {/* Header */}
@@ -265,13 +270,34 @@ export default function ResultPage() {
           </button>
           <span className="text-gray-700">·</span>
           <span className="text-sm text-gray-400">
-            合成结果 · Round {activeResult.round}
-            {activeResult.round === latestRound && allResults.length > 1 && (
+            {compareMode && compareResult
+              ? `对比 · R${compareResult.round} → R${activeResult.round}`
+              : `合成结果 · Round ${activeResult.round}`}
+            {!compareMode && activeResult.round === latestRound && allResults.length > 1 && (
               <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/20">最新</span>
             )}
           </span>
         </div>
         <div className="flex items-center gap-3">
+          {allResults.length > 1 && (
+            <button
+              onClick={() => {
+                const turningOn = !compareMode;
+                setCompareMode(m => !m);
+                if (turningOn && activeIndex === 0) {
+                  setActiveRound(allResults[allResults.length - 1].round);
+                }
+              }}
+              className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
+              style={
+                compareMode
+                  ? { borderColor: 'rgba(59,130,246,0.4)', color: '#60a5fa', backgroundColor: 'rgba(59,130,246,0.08)' }
+                  : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgb(75,85,99)', backgroundColor: 'transparent' }
+              }
+            >
+              {compareMode ? '对比模式 ✓' : '版本对比'}
+            </button>
+          )}
           <button
             onClick={() => setAttributionMode(m => m === 'hover' ? 'always' : 'hover')}
             className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
@@ -293,15 +319,42 @@ export default function ResultPage() {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* HTML preview */}
-        <div className="flex-1">
-          <iframe
-            key={activeResult.id + attributionMode}
-            srcDoc={injectAttribution(activeResult.html_content, attributionMode, roleIntentPreviews)}
-            className="w-full h-full border-0"
-            title="合成产物"
-            sandbox="allow-scripts"
-          />
+        {/* HTML preview — single or split-compare */}
+        <div className="flex-1 flex overflow-hidden">
+          {compareResult && (
+            <div className="flex-1 relative border-r border-white/10 overflow-hidden">
+              <div
+                className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[10px] font-mono px-2.5 py-0.5 rounded-full pointer-events-none select-none"
+                style={{ background: 'rgba(0,0,0,0.78)', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                R{compareResult.round}
+              </div>
+              <iframe
+                key={compareResult.id + attributionMode + 'prev'}
+                srcDoc={injectAttribution(compareResult.html_content, attributionMode, roleIntentPreviews)}
+                className="w-full h-full border-0"
+                title={`Round ${compareResult.round}`}
+                sandbox="allow-scripts"
+              />
+            </div>
+          )}
+          <div className="flex-1 relative overflow-hidden">
+            {compareResult && (
+              <div
+                className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[10px] font-mono px-2.5 py-0.5 rounded-full pointer-events-none select-none"
+                style={{ background: 'rgba(0,0,0,0.78)', color: 'rgba(52,211,153,0.85)', border: '1px solid rgba(52,211,153,0.18)' }}
+              >
+                R{activeResult.round} ✦
+              </div>
+            )}
+            <iframe
+              key={activeResult.id + attributionMode + (compareResult ? 'cmp' : '')}
+              srcDoc={injectAttribution(activeResult.html_content, attributionMode, roleIntentPreviews)}
+              className="w-full h-full border-0"
+              title="合成产物"
+              sandbox="allow-scripts"
+            />
+          </div>
         </div>
 
         {/* Right sidebar */}
@@ -321,11 +374,16 @@ export default function ResultPage() {
                       style={
                         activeRound === r.round
                           ? { backgroundColor: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }
-                          : { border: '1px solid transparent' }
+                          : compareResult && r.round === compareResult.round
+                            ? { backgroundColor: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }
+                            : { border: '1px solid transparent' }
                       }
                     >
                       <div className="flex items-center gap-2 w-full">
                         <span className="text-xs font-mono text-gray-400">R{r.round}</span>
+                        {compareResult && r.round === compareResult.round && (
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400/60 font-medium">base</span>
+                        )}
                         {diff && diff.length > 0 && (
                           <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400/80 font-medium">
                             {diff.length} 变

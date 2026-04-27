@@ -2,6 +2,86 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第六十三轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 62 完成了 Tool Use 结构化输出切换，合成可靠性达到最高。P1 优先级中，**版本对比分屏视图**是演示价值最高的改动——"Round 2 在 Round 1 基础上迭代"这一核心叙事，仅凭标题文字无法让观众直观感受；并排展示两个轮次的 HTML 产物，观众可以在视觉层面直接看到哪些区块变化了、整体品牌调性是否延续。
+
+**演示痛点**：主持人点"继续迭代 → 合成"后，结果页只能通过切换 R1/R2 按钮单独查看两个轮次。观众无法同时看到两版，"迭代改进"主张无法被视觉证明。
+
+**解决方案**：在结果页头部新增"版本对比"切换按钮。开启后，预览区分为左右两个 iframe（左=上一轮，右=当前激活轮），双方各有 `R1` / `R2 ✦` 小标签浮于顶部中央。迭代历史面板中上一轮的按钮高亮为蓝色"base"角标，帮助观众理解左右对应关系。
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — 版本对比分屏视图
+
+**新增状态**：
+```ts
+const [compareMode, setCompareMode] = useState(false);
+```
+
+**派生值**（渲染前计算，零额外 DB 查询）：
+```ts
+const activeIndex = allResults.findIndex(r => r.round === activeRound);
+const compareResult = compareMode && activeIndex > 0 ? allResults[activeIndex - 1] : null;
+```
+
+**头部"版本对比"按钮**（仅当 `allResults.length > 1` 时显示）：
+- 关闭状态：灰色边框，文字"版本对比"
+- 开启状态：蓝色高亮，文字"对比模式 ✓"
+- 特殊逻辑：开启时若当前激活轮是第一轮（无前置），自动切换到最新轮，确保对比始终有意义
+
+**头部副标题动态切换**：
+- 普通模式：`合成结果 · Round N`
+- 对比模式：`对比 · R1 → R2`
+
+**预览区条件渲染**：
+```tsx
+<div className="flex-1 flex overflow-hidden">
+  {compareResult && (
+    <div className="flex-1 relative border-r border-white/10">
+      <div className="absolute top-3 ... R{compareResult.round}" />  {/* 灰色浮标 */}
+      <iframe srcDoc={...compareResult.html_content...} sandbox="allow-scripts" />
+    </div>
+  )}
+  <div className="flex-1 relative">
+    {compareResult && <div className="absolute ... R{activeResult.round} ✦" />}  {/* 绿色浮标 */}
+    <iframe srcDoc={...activeResult.html_content...} sandbox="allow-scripts" />
+  </div>
+</div>
+```
+
+- `compareResult = null` 时（对比关闭或当前已是第一轮）：右侧 flex-1 撑满全宽，与之前单 iframe 行为完全相同
+- `compareResult != null` 时：左右各占 flex-1（50/50），中间有 `border-r` 分割线
+
+**迭代历史按钮新增 "base" 角标**：
+- 对比模式下，作为左侧基准的轮次按钮变为蓝色边框 + `base` 小标签
+- 点击不同轮次按钮可自由切换右侧（active），左侧自动跟随为前一轮
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`result/page.tsx` bundle 7.29 kB → 7.65 kB（+360 bytes，合理）。
+
+### 演示叙事（现在可以讲）
+
+1. **Round 1 合成完毕** → 结果页展示 HTML + 归因摘要
+2. **点击"继续迭代"** → 填充第 2 轮示例 → 合成
+3. **Round 2 结果页**：
+   - 点击"版本对比" → 屏幕一分为二，左 = R1，右 = R2
+   - 主持人说："你可以直接看到哪些区块被重新设计了——Hero 的文案换了角色，定价区块新增了产品经理的视角"
+   - 归因面板仍显示"本轮变化" diff（`R2 [3变]` 角标），文字补充视觉信息
+4. **点击 R1 按钮**（在对比模式下）→ R1 变为激活轮，比较变为空（R1 无前置），自动退出对比，主持人说："R1 是起点，没有对比对象"
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（Round 1 → Round 2 → 分屏对比），验证 CSS 令牌继承 + Tool Use + 归因 diff + 对比视图全链路
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：归因面板「本轮变化」区块支持点击展开，查看被替换板块的完整意图内容（需按 section 分组 intent 数据）
+- **P1**：结果页各轮次按钮新增「板块覆盖度」数字（`attribution_map` 的 key 数量），让观众一眼看出"R2 覆盖了 7 个板块"
+
+---
+
 ## 第六十二轮分析 — 2026/04/27
 
 ### 本轮扫描结论
