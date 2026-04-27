@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
   await syncRoomStateToWorkspace(normalizedRoomId, {
     type: 'synthesis_started',
     summary: isIteration ? `开始第 ${currentRound} 轮迭代合成` : '开始合成最新共享结果',
-  });
+  }).catch(() => null);
 
   const buildIntentLine = (i: typeof intents[0], isNew: boolean) => {
     const r = ROLES[i.participant?.role as RoleId];
@@ -373,7 +373,7 @@ ${intentLines}
       normalizedRoomId,
       postSynthesisEvents[postSynthesisEvents.length - 1],
       postSynthesisEvents.slice(0, -1)
-    );
+    ).catch(() => null);
 
     return NextResponse.json({ success: true });
   } catch (err) {

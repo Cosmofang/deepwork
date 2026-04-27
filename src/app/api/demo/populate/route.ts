@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (workspaceEvents.length > 0) {
-      await syncRoomStateToWorkspace(roomId, workspaceEvents[workspaceEvents.length - 1], workspaceEvents.slice(0, -1));
+      await syncRoomStateToWorkspace(roomId, workspaceEvents[workspaceEvents.length - 1], workspaceEvents.slice(0, -1)).catch(() => null);
     }
     return NextResponse.json({ added: 0, intents: totalIntents, round });
   }
@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
   // calling it for every intent (18+) makes populate take 10+ seconds.
   // Write all individual events to events.ndjson in a single pass, then call sync once.
   if (workspaceEvents.length > 0) {
-    await syncRoomStateToWorkspace(roomId, workspaceEvents[workspaceEvents.length - 1], workspaceEvents.slice(0, -1));
+    await syncRoomStateToWorkspace(roomId, workspaceEvents[workspaceEvents.length - 1], workspaceEvents.slice(0, -1)).catch(() => null);
   }
 
   return NextResponse.json({ added: missingRoles.length, intents: totalIntents });
