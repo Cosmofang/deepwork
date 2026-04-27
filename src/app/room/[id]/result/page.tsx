@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { ROLES } from '@/lib/roles';
@@ -123,6 +123,8 @@ export default function ResultPage() {
   const [sectionIntents, setSectionIntents] = useState<Record<string, Array<{ role: string; content: string }>>>({});
   const [expandedDiffSections, setExpandedDiffSections] = useState<Set<string>>(new Set());
   const [roomStatus, setRoomStatus] = useState<string | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const synthesisStartRef = useRef<number | null>(null);
   const supabase = createClient();
 
   const activeResult = allResults.find(r => r.round === activeRound) ?? allResults[allResults.length - 1] ?? null;
@@ -157,7 +159,10 @@ export default function ResultPage() {
       if (results.length > 0) {
         setActiveRound(results[results.length - 1].round);
       }
-      if (roomData) setRoomStatus(roomData.status as string);
+      if (roomData) {
+        setRoomStatus(roomData.status as string);
+        if (roomData.status === 'synthesizing') synthesisStartRef.current = Date.now();
+      }
       setLoading(false);
     });
   }, [id]);
@@ -192,11 +197,30 @@ export default function ResultPage() {
         filter: `id=eq.${id}`,
       }, (payload) => {
         const newStatus = (payload.new as { status?: string }).status;
-        if (newStatus) setRoomStatus(newStatus);
+        if (newStatus) {
+          setRoomStatus(newStatus);
+          if (newStatus === 'synthesizing') {
+            synthesisStartRef.current = Date.now();
+            setElapsedSec(0);
+          } else {
+            synthesisStartRef.current = null;
+          }
+        }
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [id]);
+
+  // Tick elapsed seconds while synthesis is running so the spinner shows live progress.
+  useEffect(() => {
+    if (roomStatus !== 'synthesizing') return;
+    const id = setInterval(() => {
+      if (synthesisStartRef.current !== null) {
+        setElapsedSec(Math.floor((Date.now() - synthesisStartRef.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [roomStatus]);
 
   // Build roleId → intent preview map (hover tooltips) and section → intents map (diff expand).
   useEffect(() => {
@@ -263,11 +287,24 @@ export default function ResultPage() {
                 <div className="absolute inset-0 rounded-full border border-purple-500/10 scale-110 animate-ping [animation-delay:0.3s]" />
                 <div className="w-14 h-14 rounded-full border-2 border-white/8 border-t-purple-400/80 animate-spin" />
               </div>
-              <p className="text-white/80 text-sm font-medium mb-2">合成进行中</p>
-              <p className="text-gray-600 text-xs leading-relaxed mb-5">
-                Claude 正在整合各角色意图，生成产品落地页 HTML。<br />完成后将自动显示结果。
+              <p className="text-white/80 text-sm font-medium mb-1">合成进行中</p>
+              <p className="text-purple-400/70 text-[11px] mb-5">
+                {elapsedSec < 15 && '分析角色意图分布...'}
+                {elapsedSec >= 15 && elapsedSec < 35 && '整合多角色视角...'}
+                {elapsedSec >= 35 && elapsedSec < 60 && '生成 HTML 结构与样式...'}
+                {elapsedSec >= 60 && elapsedSec < 80 && '归因标注与冲突检测...'}
+                {elapsedSec >= 80 && '即将完成...'}
               </p>
-              <p className="text-gray-700 text-[11px] font-mono">等待结果中...</p>
+              {/* Progress bar — fills over 90s */}
+              <div className="w-full h-0.5 bg-white/5 rounded-full mb-5 overflow-hidden">
+                <div
+                  className="h-full bg-purple-500/60 rounded-full transition-all duration-1000"
+                  style={{ width: `${Math.min((elapsedSec / 90) * 100, 98)}%` }}
+                />
+              </div>
+              <p className="text-gray-700 text-[11px] font-mono">
+                {elapsedSec > 0 ? `已用时 ${elapsedSec}s · 预计 30–90s` : '等待结果中...'}
+              </p>
             </>
           ) : isSynthesisFailed ? (
             <>
