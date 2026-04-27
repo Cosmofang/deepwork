@@ -201,7 +201,14 @@ ${intentLines}
 - 若同一板块存在矛盾意图，优先找折中方案，记录解决方式
 
 ### 归因规则
-- attributionMap 中每个 key 为区块标题（如「首屏 Hero」），value 为贡献最多的角色 ID`
+- attributionMap 中每个 key 为区块标题（如「首屏 Hero」），value 为贡献最多的角色 ID
+
+### 最终自检（输出 HTML 前必须执行）
+完成 HTML 生成后，逐一扫描所有 <section> 标签，确认：
+1. 每个 <section> 都有 data-source 属性
+2. 属性值是以下 6 个合法角色 ID 之一：designer | copywriter | developer | product | marketing | employee
+3. attributionMap 的 key 数量与页面中有意义的 <section> 数量大致匹配
+若发现任何缺失或非法值，**就地修正后再填入 generate_landing_page 工具参数** — 不得省略此步骤`
       : `你是一个多角色协作设计合成师。你的任务是将一个团队的意图合成为一个高质量产品落地页 HTML。
 
 ## 团队意图（按板块分组）
@@ -243,7 +250,14 @@ ${intentLines}
 - 若同一板块存在矛盾意图，优先找折中方案，记录解决方式
 
 ### 归因规则
-- attributionMap 中每个 key 为区块标题（如「首屏 Hero」），value 为贡献最多的角色 ID`;
+- attributionMap 中每个 key 为区块标题（如「首屏 Hero」），value 为贡献最多的角色 ID
+
+### 最终自检（输出 HTML 前必须执行）
+完成 HTML 生成后，逐一扫描所有 <section> 标签，确认：
+1. 每个 <section> 都有 data-source 属性
+2. 属性值是以下 6 个合法角色 ID 之一：designer | copywriter | developer | product | marketing | employee
+3. attributionMap 的 key 数量与页面中有意义的 <section> 数量大致匹配
+若发现任何缺失或非法值，**就地修正后再填入 generate_landing_page 工具参数** — 不得省略此步骤`;
 
     type SynthesisOutput = {
       html: string;
