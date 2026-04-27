@@ -2,6 +2,296 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第七十轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 69 完成了归因面板意图计数。当前 P1 是**合成超时无感知**——90s 超时后 `synthesize` route 将房间状态回退到 `collecting`，但结果页只做初始加载，不订阅房间状态变化，导致空状态 spinner 永久显示，用户无法感知失败、无法重试。
+
+**实现路径**：在 `synthesis:${id}` Supabase channel 中追加 `rooms` 表的 `UPDATE` 订阅，接收到 `status` 变更时同步 `setRoomStatus`。空状态渲染逻辑已有 `isSynthesizing` 判断，扩展一个 `isSynthesisFailed`（`roomStatus === 'collecting'` 且无结果）即可展示失败 UI 和「返回房间重新合成」按钮。
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — 订阅房间状态、超时失败提示 UI
+
+**变更 1** — `synthesis:${id}` channel 追加 rooms UPDATE 订阅：
+```ts
+.on('postgres_changes', {
+  event: 'UPDATE',
+  schema: 'public',
+  table: 'rooms',
+  filter: `id=eq.${id}`,
+}, (payload) => {
+  const newStatus = (payload.new as { status?: string }).status;
+  if (newStatus) setRoomStatus(newStatus);
+})
+```
+
+**变更 2** — 空状态三分支 UI：
+```tsx
+const isSynthesisFailed = roomStatus === 'collecting' && !isSynthesizing;
+// isSynthesizing → spinner
+// isSynthesisFailed → 红色感叹号 + "合成失败" + "返回房间重新合成"
+// else → 引导提示（原有 UI）
+```
+
+**演示效果**：
+- 合成进行中 → 紫色 spinner 旋转
+- 合成超时（房间回到 collecting）→ 红色感叹号图标 + "合成失败" + 红色「← 返回房间重新合成」按钮
+- 从未合成 → 原有灰色引导 UI
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`result/page.tsx` bundle 9.05 kB。commit `b5152d8`。
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径，验证全链路
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：演示首页（`/`）加入一句话介绍 + 演示流程步骤，降低第一次访问者的困惑度
+- **P1**：合成进度实时反馈 — 目前 spinner 无文字进度，可通过 workspace events 轮询显示最新进度描述
+
+---
+
+## 第六十九轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 68 完成了合成 prompt 的最终自检段落。当前 P1 是**归因摘要面板中每个 section 显示意图数量**。Cycle 64 引入了 `sectionIntents` state（按 section 分组的意图列表），但从未在归因摘要中使用过——数据已在内存，只差一步连线。
+
+**实现路径**：归因摘要遍历 `activeResult.attribution_map` 的每个 `[section, roleId]` 对。`sectionIntents[section]?.length` 直接给出该板块收到的意图数量，key 与 `DEFAULT_SECTIONS` 名称对齐，匹配率高。零额外查询，零新状态。
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — 归因摘要 section 行增加意图计数
+
+**变更**（lines 511-523 的 attribution map 遍历）：
+```tsx
+const intentCount = sectionIntents[section]?.length ?? 0;
+// ...section name 后追加：
+{intentCount > 0 && (
+  <span className="ml-1.5 text-[9px] text-gray-700 font-mono">{intentCount} 条</span>
+)}
+```
+
+**演示效果**：
+归因摘要面板现在显示：
+```
+● 设计师
+  首屏 Hero  3 条
+● 文案师
+  价值主张  2 条
+● 产品经理
+  功能亮点  4 条
+```
+
+观众一眼可以看到"功能亮点板块收到了 4 条意图，由产品经理主导"，从而理解协作机制——多个角色提交、AI 综合判断主要贡献者。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`result/page.tsx` bundle 8.73 kB → 8.78 kB（+50 bytes）。commit `d43085a`。
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径，验证全链路
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：`synthesize` 超时处理改进 — 90s 超时后房间静默回到 collecting，用户在结果页空状态无法感知失败。可在 synthesize 失败时写入一条 `synthesis_results` 错误记录，或在结果页订阅房间状态变化以感知回退
+- **P1**：演示首页（`/`）加入一句话介绍 + 演示流程步骤，降低第一次访问者的困惑度
+
+---
+
+## 第六十八轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 67 完成了角色药丸意图计数。当前最高优先级可编码 P1 是**合成产物质量保护**：如果 Claude 生成的 `<section>` 缺少 `data-source` 属性，整个归因系统（悬停提示、常亮标注、归因摘要、本轮变化 diff）会静默失效——演示时没有任何错误提示，但核心功能完全失去意义。
+
+**根本原因**：prompt 中已有「结构要求 → 关键要求」一节声明了 data-source 规范，但没有明确的「最终验证」机制。Claude 在生成长 HTML 时可能遗漏某些 section，而因为没有被要求自检，会直接输出。
+
+**解决方案**：在两个 prompt（初始合成 + 迭代合成）末尾各加一段「最终自检」，要求 Claude 在填入 `generate_landing_page` 工具参数前扫描所有 `<section>` 标签并验证 `data-source` 完整性。这利用了 Claude 指令遵循能力来保护下游功能，是防御性最强的 prompt 技巧之一。
+
+### 本轮完成的改动
+
+#### ✅ `src/app/api/synthesize/route.ts` — 两个 prompt 末尾各加最终自检段落
+
+**新增段落**（在归因规则之后，两个 prompt 各一份，共 2 处 `grep "最终自检"` 可验证）：
+```
+### 最终自检（输出 HTML 前必须执行）
+完成 HTML 生成后，逐一扫描所有 <section> 标签，确认：
+1. 每个 <section> 都有 data-source 属性
+2. 属性值是以下 6 个合法角色 ID 之一：designer | copywriter | developer | product | marketing | employee
+3. attributionMap 的 key 数量与页面中有意义的 <section> 数量大致匹配
+若发现任何缺失或非法值，**就地修正后再填入 generate_landing_page 工具参数** — 不得省略此步骤
+```
+
+**保护的功能链**：
+- `injectAttribution()` 依赖 `[data-source]` 选择器注入悬停脚本
+- `attributionMode === 'always'` 依赖 `[data-source]` 渲染常亮 badge
+- `attributionMap` 归因摘要面板依赖 Claude 输出完整的 key-value 映射
+- `computeAttributionDiff()` 依赖两轮 `attribution_map` 均有对应 section key
+
+任何一个 section 缺少 `data-source`，上述功能对该区块静默失效。自检段落确保 Claude 在输出前验证全覆盖。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误（prompt 纯文本变更，bundle size 不变）。commit `82e4bcd`。
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（Round 1 → Round 2 → 分屏对比 → 展开意图），验证全链路及自检效果
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：结果页归因摘要面板中，每个 section 行可以加「N 条意图」小字，让观众直观感受"多少人贡献了这个区块"
+- **P1**：`synthesize` 超时处理改进 — 当前 90s 超时直接返回 500，可以在超时前先检查是否已有部分结果并回退，而非彻底失败
+
+---
+
+## 第六十七轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 66 完成了结果页空状态的两套感知 UI。当前 P1 中，**演示房间 UI 的角色药丸意图计数**直接提升演示可读性：主持人在收集阶段能实时看到每个角色提交了几条意图，无需点开 section 卡片才能知道覆盖度。这也是 Claude 展示"团队协作感"最有力的视觉证据。
+
+**实现分析**：`intents` state 中每条 intent 都携带 `participant.role` 字段（来自 `select('*, participant:participants(*)')` 查询），直接在 render 前遍历一次即可得到各角色计数。已有的 intents 实时订阅（INSERT 触发 `setIntents`）会自动使计数跟随新提交更新，零额外查询，零额外订阅。
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/page.tsx` — 角色药丸意图计数
+
+**新增派生值**（在 `return` 前，与其他派生值同处）：
+```ts
+const intentCountByRole: Record<string, number> = {};
+for (const intent of intents) {
+  const role = intent.participant?.role;
+  if (role) intentCountByRole[role] = (intentCountByRole[role] ?? 0) + 1;
+}
+```
+
+**角色药丸渲染更新**：
+```tsx
+const count = intentCountByRole[roleId] ?? 0;
+// ...现有 dot + label...
+{count > 0 && (
+  <span className="text-[9px] font-mono leading-none" style={{ opacity: 0.55 }}>
+    {count}
+  </span>
+)}
+```
+
+**演示效果**：
+- 角色未加入：灰色药丸，无数字
+- 角色已加入但 0 条意图：彩色药丸，无数字
+- 角色已提交 3 条意图：彩色药丸 + 半透明小字 "3"
+
+主持人一眼扫过 6 个药丸，可以看出哪些角色"声音最响"（提交最多），从而构建叙事。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`room/[id]` bundle 9.84 kB → 9.96 kB（+120 bytes，极小）。commit `0367927`。
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（Round 1 → Round 2 → 分屏对比 → 展开意图），验证全链路
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：合成产物质量保护 — `synthesize` prompt 末尾加「最终自检」段落，要求 Claude 扫描所有 `<section>` 并确认每个都有 `data-source` 属性，防止归因系统静默失效
+- **P1**：结果页归因摘要面板中，每个 section 行可以加小型意图数字（该板块共收到 N 条意图），让观众看到"多少意见汇聚成这一板块"
+
+---
+
+## 第六十六轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 65 完成了"继续迭代"按钮显示下一轮编号。当前唯一可编码的 P1 是：**结果页空状态应提供有意义的引导**，而非仅显示"暂无合成结果"。
+
+**现状痛点**：有两个独立场景会触发空状态：
+1. 主持人在合成完成前提前访问结果页（synthesis 进行中）
+2. 结果页 URL 被分享给未参与的访客（房间处于 collecting 状态）
+
+两种场景下原来都只显示一行灰字 + 文本链接，没有区分，无法给用户任何行动指导。
+
+**解决方案**：在初始加载时并行拉取 `rooms.status`（与 `synthesis_results` 同一个 `Promise.all`，无额外往返），根据状态渲染两套完全不同的 UI：
+- `synthesizing`：三层脉冲圆环动画 + "合成进行中" + "完成后自动显示"（已有的 Supabase INSERT 订阅会在结果出现时自动切换到正常视图）
+- 其他：六边形图标 + 一句话解释流程 + 样式化 CTA 按钮 + 次级刷新按钮
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — 空状态感知房间状态
+
+**新增状态**：
+```tsx
+const [roomStatus, setRoomStatus] = useState<string | null>(null);
+```
+
+**初始加载改为并行双查询**：
+```tsx
+Promise.all([
+  supabase.from('synthesis_results').select('*').eq('room_id', id).order('round', { ascending: true }),
+  supabase.from('rooms').select('status').eq('id', id).single(),
+]).then(([{ data: resultData }, { data: roomData }]) => {
+  // ... setAllResults, setActiveRound, setLoading
+  if (roomData) setRoomStatus(roomData.status as string);
+});
+```
+
+**空状态渲染**：
+- `isSynthesizing = roomStatus === 'synthesizing'` 时：三层脉冲环 + 中文说明 + "等待结果中..." monospace 文字
+- 否则：圆角方形 SVG 六边形图标 + 流程说明 + "← 返回房间采集意图"（带悬停效果）+ 次级"刷新页面"按钮
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`result/page.tsx` bundle 8.02 kB → 8.73 kB（+710 bytes，合理）。commit `0c9f57c`。
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（Round 1 → Round 2 → 分屏对比 → 展开意图），验证全链路
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：合成产物质量提升 — `synthesize` API 的 prompt 可以加入「结构要求强度检查」：要求 Claude 自我审查是否所有 section 都有 `data-source` 属性，避免归因数据缺失
+- **P1**：演示房间 UI 可以在意图提交后立即显示角色药丸数量（`N 条意图`），让主持人一眼看到覆盖度，目前只有 6 个角色格子但没有意图计数
+
+---
+
+## 第六十五轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 64 完成了板块覆盖度数字和可展开意图内容。读取 `room/[id]/page.tsx` 确认 synthesizing 状态已有完整实现（Supabase 订阅自动跳转、动态环形动画、阶段文字轮转、经过时间计时器、角色药丸、板块展开），P1 item 2 实际上已完成。本轮聚焦 P1 item 1：**"继续迭代"按钮显示下一轮编号**。
+
+**改动思路**：`latestRound` 已在 line 250 计算（`allResults[allResults.length - 1]?.round ?? 1`），直接在按钮文字中内插 `latestRound + 1`，零额外状态、零额外查询。
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — 继续迭代按钮显示下一轮编号
+
+**变更**（line 276）：
+```tsx
+// Before
+{resetting ? '重置中...' : '← 继续迭代'}
+
+// After
+{resetting ? '重置中...' : `← 继续迭代 · Round ${latestRound + 1}`}
+```
+
+**演示效果**：主持人在 Round 2 结果页看到 "← 继续迭代 · Round 3"，无需数手指，知道下一步是第几轮。
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。commit `6500c8a`。
+
+### 当前演示叙事（完整可讲）
+
+1. **Round 1 合成完毕** → 结果页侧边栏 `R1 · 7板`，头部显示 "← 继续迭代 · Round 2"
+2. **继续迭代 → 合成 Round 2** → 侧边栏：`R1 · 7板` / `R2 · 7板 · [3变]`，头部变为 "← 继续迭代 · Round 3"
+3. **点击"版本对比"** → 分屏，主持人讲"视觉变化"
+4. **关闭对比，点击 R2 按钮** → 归因面板「本轮变化」，点击展开看意图内容
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（Round 1 → Round 2 → 分屏对比 → 展开意图），验证全链路
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：结果页空状态（无合成结果时）可以加引导文字，避免主持人看到空白页面不知所措
+
+---
+
 ## 第六十四轮分析 — 2026/04/27
 
 ### 本轮扫描结论
