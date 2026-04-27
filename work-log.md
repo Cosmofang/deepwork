@@ -2,6 +2,67 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第七十二轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 71 完成了首页文案和 Solo 演示入口。当前 P1 是**合成进度实时反馈**——spinner 等待 30-90s 期间无任何文字进度，用户不知道发生了什么。工作区 events 在 synthesis 期间只有两个同步点（started / completed），轮询 workspace API 没有意义。最有效的方案是：记录合成开始时刻，用客户端 `setInterval` 每秒更新已用秒数，同时展示阶段描述（基于时间窗口）和进度条（90s 为满）。
+
+**实现路径**：
+1. `useRef<number | null>` 记录合成开始时间戳（初始加载 + realtime 订阅两处都记录）
+2. `useState(0)` 存 `elapsedSec`，由专用 `useEffect` 中的 `setInterval(1000)` 驱动
+3. 进度条：`Math.min(elapsedSec / 90, 0.98) * 100`%
+4. 阶段描述：0-15s 分析意图、15-35s 整合视角、35-60s 生成 HTML、60-80s 归因标注、80s+ 即将完成
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — 合成进度反馈
+
+**变更**（synthesizing 空状态）：
+```tsx
+// 新增 state / ref
+const [elapsedSec, setElapsedSec] = useState(0);
+const synthesisStartRef = useRef<number | null>(null);
+
+// 初始加载时记录开始时间
+if (roomData.status === 'synthesizing') synthesisStartRef.current = Date.now();
+
+// realtime 订阅时记录/清除
+if (newStatus === 'synthesizing') { synthesisStartRef.current = Date.now(); setElapsedSec(0); }
+else { synthesisStartRef.current = null; }
+
+// 专用 tick effect
+useEffect(() => {
+  if (roomStatus !== 'synthesizing') return;
+  const id = setInterval(() => {
+    if (synthesisStartRef.current !== null)
+      setElapsedSec(Math.floor((Date.now() - synthesisStartRef.current) / 1000));
+  }, 1000);
+  return () => clearInterval(id);
+}, [roomStatus]);
+```
+
+**spinner UI 新增**：
+- 阶段描述文字（按时间窗口切换，紫色）
+- 0.5px 进度条（90s 为满，1s CSS transition）
+- 已用时显示：`已用时 23s · 预计 30–90s`
+
+**演示效果**：
+- 点击「开始合成」后跳转结果页，spinner 显示紫色相位文字 + 进度条实时推进 + 秒数计时
+- 让等待过程"有感"而非空白焦虑
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`result/page.tsx` bundle 9.05 kB → 9.37 kB。commit `a8f272b`。
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径，验证全链路
+- **P1**：synthesize route 超时体验优化 — 目前 90s AbortController timeout 触发后，catch 块把房间状态回退到 collecting；可以在 catch 里额外检测是否是 abort 错误，写一条 synthesis_results 错误记录（status='error'），让结果页能显示更丰富的失败信息
+- **P1**：房间页「开始合成」按钮点击后直接 push 到结果页，避免用户手动导航
+
+---
+
 ## 第七十一轮分析 — 2026/04/27
 
 ### 本轮扫描结论
