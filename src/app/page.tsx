@@ -11,11 +11,34 @@ export default function EntryPage() {
   const [role, setRole] = useState<RoleId | null>(null);
   const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [soloLoading, setSoloLoading] = useState(false);
   const [error, setError] = useState('');
 
   const generateCode = () => {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     setRoomCode(code);
+  };
+
+  const handleSoloDemo = async () => {
+    setSoloLoading(true);
+    setError('');
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    try {
+      const res = await fetch('/api/rooms/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: '演示者', role: 'product', roomCode: code }),
+      });
+      if (!res.ok) { setSoloLoading(false); setError('创建失败，请重试'); return; }
+      const data = await res.json() as { participant?: { id: string } };
+      if (!data.participant?.id) { setSoloLoading(false); setError('创建失败，请重试'); return; }
+      localStorage.setItem(`participant_id:${code}`, data.participant.id);
+      localStorage.setItem('participant_room_id', code);
+      router.push(`/room/${code}`);
+    } catch {
+      setSoloLoading(false);
+      setError('创建失败，请重试');
+    }
   };
 
   const handleJoin = async () => {
@@ -64,21 +87,22 @@ export default function EntryPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold tracking-tight mb-2">DeepWork</h1>
-          <p className="text-gray-500 text-sm mb-6">意图 + 合成，集体智慧的结晶</p>
+          <p className="text-gray-400 text-sm mb-1">6 个角色各提意图</p>
+          <p className="text-gray-600 text-xs mb-6">Claude 60 秒内将所有意图合成为一个产品落地页，并标注每个区块由谁主导</p>
           <div className="flex items-center justify-center gap-6 text-xs text-gray-600">
             <div className="flex flex-col items-center gap-1.5">
               <span className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 font-mono">1</span>
-              <span>6人各选角色</span>
+              <span>各选角色加入</span>
             </div>
             <div className="w-8 h-px bg-white/10" />
             <div className="flex flex-col items-center gap-1.5">
               <span className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 font-mono">2</span>
-              <span>提交你的意图</span>
+              <span>提交产品意图</span>
             </div>
             <div className="w-8 h-px bg-white/10" />
             <div className="flex flex-col items-center gap-1.5">
               <span className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 font-mono">3</span>
-              <span>AI 合成 + 归因</span>
+              <span>Claude 合成落地页</span>
             </div>
           </div>
         </div>
@@ -151,6 +175,26 @@ export default function EntryPage() {
           >
             {loading ? '加入中...' : '进入房间 →'}
           </button>
+
+          <div className="relative flex items-center gap-3 pt-1">
+            <div className="flex-1 h-px bg-white/8" />
+            <span className="text-gray-700 text-[10px]">或</span>
+            <div className="flex-1 h-px bg-white/8" />
+          </div>
+
+          <button
+            onClick={handleSoloDemo}
+            disabled={soloLoading}
+            className="w-full py-2.5 rounded-xl text-sm transition-all disabled:opacity-40"
+            style={{ backgroundColor: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)', color: 'rgba(192,132,252,0.9)' }}
+            onMouseEnter={e => { if (!soloLoading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(168,85,247,0.14)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(168,85,247,0.08)'; }}
+          >
+            {soloLoading ? '创建演示房间中...' : '⚡ Solo 演示 — 一人即可体验全流程'}
+          </button>
+          <p className="text-gray-700 text-[10px] text-center -mt-2">
+            自动创建房间，进入后点「一键填充」即可看到 6 角色意图 + AI 合成效果
+          </p>
         </div>
 
         <p className="text-center text-gray-700 text-xs mt-4">
