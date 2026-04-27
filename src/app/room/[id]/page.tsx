@@ -53,6 +53,7 @@ export default function RoomPage() {
   const [synthesizing, setSynthesizing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [populating, setPopulating] = useState(false);
+  const [populateToast, setPopulateToast] = useState('');
   const [mobileTab, setMobileTab] = useState<MobileTab>('flow');
   const [afterRound, setAfterRound] = useState(0);
   const [lastSynthesisAt, setLastSynthesisAt] = useState<string | null>(null);
@@ -297,12 +298,24 @@ export default function RoomPage() {
     if (populating) return;
     setPopulating(true);
     setRequestError('');
+    const beforeCount = intents.length;
     await fetch('/api/demo/populate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roomId: id, ...(round && round > 1 ? { round } : {}) }),
     }).catch(() => null);
     setPopulating(false);
+    // Intents arrive via realtime; wait 1.2s then check how many arrived
+    setTimeout(() => {
+      setIntents(prev => {
+        const added = prev.length - beforeCount;
+        if (added > 0) {
+          setPopulateToast(`✓ 已填充 ${added} 条意图`);
+          setTimeout(() => setPopulateToast(''), 2800);
+        }
+        return prev;
+      });
+    }, 1200);
   };
 
   const triggerSynthesis = () => {
@@ -475,6 +488,15 @@ export default function RoomPage() {
               <p className="text-xs text-[#a8a29e]">{synthesisElapsed}s · 完成后自动跳转</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Populate success toast */}
+      {populateToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 px-5 py-2.5 rounded-2xl text-sm font-medium shadow-lg pointer-events-none"
+          style={{ background: 'rgba(5,150,105,0.92)', color: '#fff', backdropFilter: 'blur(8px)' }}
+        >
+          {populateToast}
         </div>
       )}
 

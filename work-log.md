@@ -2,6 +2,70 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第七十四轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 73 完成了 fire-and-forget 合成跳转，UI 主题已全面切换为浅色米色。当前最高优先级：**合成产物质量**——现有 prompt 生成的落地页静态、无动画，在演示台上视觉冲击力不足。其次是两个小 UX 摩擦：`一键填充` 后无反馈、结果页无法快速分享链接。
+
+**本轮分析路径**：
+- 读取 synthesize route → 发现 HTML 规范全为静态样式，无动画/交互指引
+- 读取 roles.ts → demo intents 内容已很具体，但 Claude 拿到的 prompt 缺乏「现代 SaaS 动效」规范
+- 读取 room page + result page → 确认两个小 UX 痛点可快速修复
+
+### 本轮完成的改动
+
+#### ✅ 1. `src/app/api/synthesize/route.ts` — 合成 prompt 质量大幅升级
+
+**核心变化**：将原来 R1 和 Iteration 两个 prompt 中重复的 HTML 规范提取为共享常量 `HTML_SPEC`，并大幅升级内容：
+
+**新增「动画与交互」规范（4项强制实现）**：
+1. **Hero 动态光晕**：CSS `@keyframes drift` + radial-gradient，Hero 背景两个光球缓慢漂移（20s 循环）
+2. **Scroll-reveal 淡入上移**：`IntersectionObserver` 监听所有 section/card，进入视口时触发 `opacity 0→1` + `translateY 28px→0`（0.7s ease）
+3. **数字计数动画**：带 `data-count` 属性的数字元素，进入视口时 800ms 从 0 计数到目标值（easeOutQuad）
+4. **卡片微交互 + 主按钮呼吸**：`.feature-card:hover { translateY(-6px) + shadow }`；CTA 主按钮紫色脉冲动画（2.8s 循环）
+
+**视觉风格升级**：
+- 字号层级更精确（Hero 56-72px / section 标题 36-44px）
+- 明确「现代 SaaS 深色旗舰风，类 Linear / Vercel / Loom」
+- 卡片增加 `backdrop-filter: blur(8px)` 玻璃态效果
+- section padding-block 提升到 100px（原 80px）
+- 主按钮增加渐变按钮变体
+
+**演示影响**：合成出来的落地页从「静态暗色模板」升级为「有动效的 SaaS 产品页」，Hero 区有动态光球，滚动时区块淡入，CTA 按钮有呼吸光晕——大幅提升最终展示效果。
+
+#### ✅ 2. `src/app/room/[id]/page.tsx` — 一键填充成功 Toast
+
+**问题**：`populateDemo` 调用后用户无任何反馈（intents 通过 realtime 悄悄出现），容易误以为什么都没发生。
+
+**实现**：
+- 新增 `populateToast` state
+- `populateDemo` 完成后延迟 1.2s 检测新增 intent 数量（等待 realtime 到达），若 > 0 则显示绿色浮层 toast `「✓ 已填充 X 条意图」`
+- Toast 2.8s 后自动消失
+- 浮层固定在底部居中，绿色毛玻璃背景，不阻断操作
+
+#### ✅ 3. `src/app/room/[id]/result/page.tsx` — 结果页「复制链接」按钮
+
+**需求**：演示中合成完成后，主持人需要快速把结果页 URL 发给观众或截图。
+
+**实现**：在结果页 header 右侧操作栏新增「复制链接 ↗」按钮：
+- 点击调用 `navigator.clipboard.writeText(window.location.href)`
+- 复制成功后按钮变为绿色「链接已复制 ✓」状态（1.8s 后恢复）
+- 与现有「归因」「对比」「下载 HTML」按钮风格一致
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`/room/[id]` 10.3 kB，`/room/[id]/result` 9.72 kB。
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（Solo 演示 → 一键填充 → 合成 → 查看结果），验证 4 项动画均正常工作
+- **P1**：验证 Vercel 部署：连接 GitHub repo、配置 5 个环境变量、Supabase schema 是否已执行
+- **P1**：超时错误区分 — 若 AbortError（90s 超时）与 API 错误分开处理，在结果页展示更有意义的失败原因
+- **P2**：Hero 光球动画的具体参数（颜色、大小）受 demo intents 影响，可通过在 prompt 中提示 Claude「强调色与角色颜色系统呼应（紫/蓝/绿）」来提升一致性
+
+---
+
 ## 第七十三轮分析 — 2026/04/27
 
 ### 本轮扫描结论

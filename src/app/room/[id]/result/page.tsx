@@ -116,6 +116,7 @@ export default function ResultPage() {
   const [activeRound, setActiveRound] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [recommendedActions, setRecommendedActions] = useState<DeepWorkRecommendedAction[]>([]);
   const [attributionMode, setAttributionMode] = useState<'hover' | 'always'>('always');
   const [roleIntentPreviews, setRoleIntentPreviews] = useState<Partial<Record<string, string>>>({});
@@ -444,6 +445,22 @@ export default function ResultPage() {
             }
           >
             {attributionMode === 'always' ? '归因常亮 ✓' : '归因: 悬停'}
+          </button>
+          <button
+            onClick={() => {
+              void navigator.clipboard.writeText(window.location.href).then(() => {
+                setLinkCopied(true);
+                setTimeout(() => setLinkCopied(false), 1800);
+              });
+            }}
+            className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
+            style={
+              linkCopied
+                ? { borderColor: 'rgba(5,150,105,0.35)', color: '#059669', backgroundColor: 'rgba(5,150,105,0.06)' }
+                : { borderColor: 'rgba(0,0,0,0.08)', color: '#78716c', backgroundColor: 'transparent' }
+            }
+          >
+            {linkCopied ? '链接已复制 ✓' : '复制链接 ↗'}
           </button>
           <button
             onClick={() => downloadHtml(activeResult.html_content, activeResult.round, id)}
