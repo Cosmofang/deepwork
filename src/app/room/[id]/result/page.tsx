@@ -273,7 +273,7 @@ export default function ResultPage() {
             disabled={resetting}
             className="text-gray-500 hover:text-white transition-colors text-sm disabled:opacity-50"
           >
-            {resetting ? '重置中...' : '← 继续迭代'}
+            {resetting ? '重置中...' : `← 继续迭代 · Round ${latestRound + 1}`}
           </button>
           <span className="text-gray-700">·</span>
           <span className="text-sm text-gray-400">
