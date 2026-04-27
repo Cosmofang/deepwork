@@ -14,6 +14,7 @@ export const DEFAULT_SECTIONS: SectionDefinition[] = [
   { name: 'FAQ', hint: '疑虑处理与常见问题' },
   { name: '社交证明', hint: '评价、案例与背书' },
   { name: 'CTA', hint: '行动按钮与转化收口' },
+  { name: '企业介绍', hint: '公司故事、团队、使命与品牌背书' },
 ];
 
 export function normalizeSectionName(value: string) {

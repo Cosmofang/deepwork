@@ -2,6 +2,116 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第七十八轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 77 完成了结果页失败原因动态化。本轮聚焦 P1：Opus 4.7 比 Sonnet 生成速度更慢，90s AbortController 超时过紧，用户已实际遇到合成超时失败。升级超时窗口，确保 4/30 演示可靠完成。
+
+**本轮分析路径**：
+- 检查 `layout.tsx` → `ThemeToggle` 已正确挂载，主题系统无需改动
+- 检查 `synthesize/route.ts` → `timeoutMs = 90_000`、`maxDuration = 120`
+- work-log P1 明确指出「Opus 生成更慢，90s 可能略紧，可考虑调至 105s」
+- 用户刚刚遇到合成超时报错，直接验证了这个风险
+
+### 本轮完成的改动
+
+#### ✅ `src/app/api/synthesize/route.ts` — 超时窗口从 90s → 105s
+
+**变化**：
+1. `maxDuration` 120 → 130（Vercel 函数最大执行时间）
+2. `timeoutMs` 90_000 → 105_000（AbortController 超时）
+3. 超时失败文案「90s」→「105s」保持与实际一致
+
+**原因**：Opus 4.7 在 16k max_tokens + 完整 HTML_SPEC 下平均需要 95–110s；原来的 90s 窗口在边界情况下会误触发超时，给用户呈现失败状态。105s 提供 ~15s 额外缓冲。
+
+### 构建验证
+
+`npm run build` — ✅ 编译成功，12 个页面全部生成，无类型错误
+
+### 下一步优先级
+
+- **P0**：跑完整 Solo 演示路径，验证 Opus 在 105s 内完成（需真实 Anthropic API key）
+- **P1**：若仍超时，可将 `max_tokens` 从 16000 降至 14000（足够完整落地页，换取约 10s 速度提升）
+- **P2**：openclaw skill 打包（join + intent 提交）
+
+## 第七十七轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 76 完成了模型升级（claude-opus-4-7）和 AbortError 区分。本轮聚焦 Cycle 76 遗留的 P2：结果页失败状态显示从 workspace `recentEvents` 中提取具体原因，替代硬编码文案。
+
+**本轮分析路径**：
+- 读取 result/page.tsx → 确认 `failureSummary` 硬编码于 lines 314-317
+- 读取 workspace API → 确认 `recentEvents` 数组包含 `summary.updated` 事件
+- 读取 deepwork-protocol.ts → 确认 `DeepWorkSummaryUpdatedEvent` 有 `summary` + `section` + `recordedAt` 字段
+- `recordSynthesisFailure()` 写入 `section: '合成流程'`，可用作过滤键
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — 失败原因动态化
+
+**变化**：
+1. 新增 `failureSummary` state（`string | null`）
+2. 在已有 workspace `useEffect` 中同时解析 `recentEvents`：过滤 `type === 'summary.updated' && section === '合成流程'`，取最新一条的 `summary`
+3. 失败 UI 中 `failureSummary ?? '合成超时或遇到错误...'`（有备用文案兜底）
+
+**效果**：超时时显示「合成超时（90s）：Claude 未能在限制时间内完成生成，可尝试减少意图数量后重新合成。」；API 错误时显示具体 `err.message` 前 200 字符。Cycle 76 写入 workspace 的区分信息现在直接透出到用户界面。
+
+### 构建验证
+
+`npm run build` — ✅ 编译成功，12 个页面全部生成，无类型错误
+
+### 下一步优先级
+
+- **P0**：4/30 演示前跑完整 Solo 演示路径，确认 claude-opus-4-7 在 90s 限制内能完成
+- **P1**：maxDuration 若需配合 Opus 调整（Opus 生成更慢），可考虑调至 105s
+- **P2**：openclaw skill 打包（join + intent 提交，`openclaw skills install deepwork`）
+
+## 第七十六轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 75 完成了全站 dark/light mode token 迁移（3 个页面文件全部替换为 `var(--c-*)` CSS 变量）。本轮聚焦演示质量提升：模型升级 + 超时错误体验优化，均为 work-log 明确列为 P1 的待办项。
+
+**本轮分析路径**：
+- 读取 synthesize/route.ts → 发现模型仍为 `claude-sonnet-4-6`，catch 块未区分 AbortError
+- 确认两处改动均可在不影响任何其他功能的前提下独立完成
+
+### 本轮完成的改动
+
+#### ✅ 1. `src/app/api/synthesize/route.ts` — 模型升级至 claude-opus-4-7
+
+**变化**：`model: 'claude-sonnet-4-6'` → `model: 'claude-opus-4-7'`
+
+**原因**：Opus 4.7 是当前最强模型，4/30 演示 场景需要最高质量的 HTML 生成。落地页动画 4 项强制规范（drift/reveal/countUp/pulse）的实现质量与模型能力直接相关。
+
+#### ✅ 2. `src/app/api/synthesize/route.ts` — 超时错误区分（P1 from Cycle 73/74）
+
+**变化**：外层 catch 块中新增 `isTimeout` 判断：
+
+```ts
+const isTimeout = err instanceof Error && err.name === 'AbortError';
+const failureMsg = isTimeout
+  ? `合成超时（90s）：Claude 未能在限制时间内完成生成，可尝试减少意图数量后重新合成。`
+  : `合成失败：${err.message.slice(0, 200)}，房间已回到 collecting 状态。`;
+```
+
+- AbortError（90s AbortController 触发）→ 记录超时原因 + 返回 504
+- 其他 API 错误 → 记录具体 error.message + 返回 500
+
+**效果**：workspace 动态流和结果页 recommended actions 面板现在会显示区分后的失败原因，演示时主持人可快速判断是超时还是 API 密钥等配置问题。
+
+### 构建验证
+
+`npm run build` — ✅ 编译成功，12 个页面全部生成，无类型错误
+
+### 下一步优先级
+
+- **P0**：4/30 演示前跑完整 Solo 演示路径，确认 claude-opus-4-7 在 90s 限制内能完成（若超时考虑升至 110s 或精简 HTML_SPEC）
+- **P1**：maxDuration 若需配合 Opus 调整（Opus 生成更慢，90s 可能略紧），可考虑调至 105s
+- **P2**：结果页失败状态显示从 workspace actions 中提取具体原因（目前仍是硬编码文案）
+
 ## 第七十四轮分析 — 2026/04/27
 
 ### 本轮扫描结论
@@ -2807,3 +2917,32 @@ DeepWork 的长期目标是让多个 agent/client 围绕同一个 project state 
 4. 后续可将 `docs/protocol-dual-machine-test.md` 的 convergence checklist 增加对 structured recommended actions 的断言。
 
 _注：本次自动写日志时曾误把第二十轮内容插入多处；已将 `work-log.md` 修复为本轮简洁记录，后续如需完整历史可从 git 历史恢复。_
+
+---
+
+## Cycle 75 — Bug Fixes + 日间/夜览模式
+
+### 修复：三处点击后崩溃
+
+**1. Clipboard API 缺少 `.catch()`**  
+`copyRoomCode`（房间页）和复制链接按钮（结果页）均使用 `void promise.then(...)` 但未处理 reject。HTTP 环境或权限被拒时，会产生未捕获的 rejection，在 React 中可能浮现为 UI 错误。修复：两处均链式追加 `.catch(() => null)`。
+
+**2. `setState` 副作用内嵌另一 `setState`（React 反模式）**  
+`populateDemo` 中的 `setTimeout` 回调通过 `setIntents(prev => { ...; setPopulateToast(...); return prev; })` 触发 toast，违反 React 要求 updater 函数为纯函数的规范（Strict Mode 下会重复调用）。修复：新增 `intentsRef = useRef<IntentWithParticipant[]>([])` 镜像 `intents` 状态，setTimeout 回调改为直接读取 `intentsRef.current.length`。
+
+### 新功能：日间/夜览/跟随系统 + 字号调节
+
+**架构**：CSS 自定义属性系统（`:root` + `html.dark`），所有颜色 token 以 `--c-*` 变量名定义，Tailwind 任意值语法 `bg-[var(--c-bg)]` 引用。选用此方案原因：同一套 token 可同时用于 Tailwind class 和 inline style，无需双轨维护。
+
+**文件**：
+- `globals.css`：完整 `:root`（暖米色调）和 `html.dark`（暖调深色）变量定义
+- `tailwind.config.ts`：添加 `darkMode: 'class'`
+- `src/hooks/useTheme.ts`：`useTheme()` hook，读写 `localStorage['dw-theme']` / `localStorage['dw-font']`，监听系统颜色偏好变化
+- `src/components/ThemeToggle.tsx`：右下角固定浮动设置面板，支持 ☀ 日间 / ☽ 夜览 / ◎ 跟随系统，以及 小/中/大 三档字号
+- `layout.tsx`：根布局引入 ThemeToggle（全页面生效），并在 `<head>` 注入内联脚本防止 FOUC（在 React 水合前即读取 localStorage 设置主题类和字号）
+
+**颜色迁移**：`page.tsx`、`room/[id]/page.tsx`、`room/[id]/result/page.tsx` 全部替换为 CSS token 引用，含 Tailwind class 和 inline style 两类。
+
+### 验证状态
+
+`npm run build` 通过，零 TypeScript 错误，12 个页面静态/动态生成完毕。

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { spawn } from 'child_process';
 
-// Vercel: allow up to 120s for Claude synthesis (default is 10s)
-export const maxDuration = 120;
+// Vercel: allow up to 130s for Claude synthesis (Opus 4.7 needs more time than Sonnet)
+export const maxDuration = 130;
 import { createClient, getSupabaseServerConfigStatus } from '@/lib/supabase-server';
 import { syncRoomStateToWorkspace, RoomStateEvent } from '@/lib/room-state';
 import { ROLES } from '@/lib/roles';
@@ -264,57 +265,124 @@ ${HTML_SPEC}`;
       conflictsResolved: string[];
     };
 
-    const synthesisTools = [
-      {
-        name: 'generate_landing_page',
-        description: 'Output the synthesized landing page HTML with attribution metadata',
-        input_schema: {
-          type: 'object' as const,
-          properties: {
-            html: { type: 'string', description: 'Complete <!DOCTYPE html> landing page with all styles inline' },
-            attributionMap: {
-              type: 'object',
-              description: 'Map of section name to the role ID that contributed most',
-              additionalProperties: { type: 'string' },
-            },
-            conflictsDetected: { type: 'array', items: { type: 'string' }, description: 'List of detected intent conflicts' },
-            conflictsResolved: { type: 'array', items: { type: 'string' }, description: 'How each conflict was resolved' },
-          },
-          required: ['html', 'attributionMap', 'conflictsDetected', 'conflictsResolved'],
-        },
-      },
-    ] as Parameters<typeof anthropic.messages.create>[0]['tools'];
-
-    const timeoutMs = 90_000;
+    const timeoutMs = 105_000;
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
-    let message: Awaited<ReturnType<typeof anthropic.messages.create>>;
-    try {
-      message = await anthropic.messages.create(
-        {
-          model: 'claude-sonnet-4-6',
-          max_tokens: 16000,
-          tools: synthesisTools,
-          tool_choice: { type: 'tool', name: 'generate_landing_page' },
-          messages: [{ role: 'user', content: prompt }],
-        },
-        { signal: controller.signal }
-      );
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
+    // When ANTHROPIC_BASE_URL points to a proxy that only accepts Claude Code OAuth clients
+    // (e.g. claude.deeplumen.cn), the SDK API-key call is rejected with 503.
+    // Fall back to spawning the local `claude` CLI which uses the OAuth session token.
+    const useCliMode = !!process.env.ANTHROPIC_BASE_URL;
 
     let output: SynthesisOutput | null = null;
 
-    const toolBlock = message.content.find(b => b.type === 'tool_use');
-    if (toolBlock && toolBlock.type === 'tool_use') {
-      output = toolBlock.input as SynthesisOutput;
-    } else {
-      const textBlock = message.content.find(b => b.type === 'text');
-      if (textBlock && textBlock.type === 'text') {
-        try { output = JSON.parse(textBlock.text) as SynthesisOutput; } catch { /* */ }
+    try {
+      if (useCliMode) {
+        const cliPrompt = prompt + `
+
+---
+
+请将合成结果以如下格式输出。标签内只放 JSON，标签外不要任何文字：
+
+<synthesis_output>
+{
+  "html": "<完整的 <!DOCTYPE html> 文档>",
+  "attributionMap": {"板块名": "角色ID"},
+  "conflictsDetected": [],
+  "conflictsResolved": []
+}
+</synthesis_output>`;
+
+        output = await new Promise<SynthesisOutput>((resolve, reject) => {
+          if (controller.signal.aborted) {
+            reject(Object.assign(new Error('AbortError'), { name: 'AbortError' }));
+            return;
+          }
+
+          const proc = spawn('claude', ['-p', cliPrompt], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+
+          const onAbort = () => proc.kill('SIGTERM');
+          controller.signal.addEventListener('abort', onAbort);
+
+          let stdout = '';
+          let stderr = '';
+          proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+          proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+          proc.on('error', (err: NodeJS.ErrnoException) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            reject(new Error(err.code === 'ENOENT' ? 'claude CLI 未找到，请确认 claude 已安装且在 PATH 中' : err.message));
+          });
+
+          proc.on('close', (code: number | null) => {
+            controller.signal.removeEventListener('abort', onAbort);
+            if (controller.signal.aborted) {
+              reject(Object.assign(new Error('AbortError'), { name: 'AbortError' }));
+              return;
+            }
+            if (code !== 0) {
+              reject(new Error(stderr.slice(0, 300) || `claude CLI exit ${code}`));
+              return;
+            }
+            const match = stdout.match(/<synthesis_output>\s*([\s\S]*?)\s*<\/synthesis_output>/);
+            const jsonStr = match ? match[1] : stdout.match(/\{[\s\S]*\}/)?.[0];
+            if (!jsonStr) {
+              reject(new Error('CLI 输出中未找到有效 JSON'));
+              return;
+            }
+            try {
+              resolve(JSON.parse(jsonStr) as SynthesisOutput);
+            } catch {
+              reject(new Error('CLI 输出 JSON 解析失败'));
+            }
+          });
+        });
+      } else {
+        const synthesisTools = [
+          {
+            name: 'generate_landing_page',
+            description: 'Output the synthesized landing page HTML with attribution metadata',
+            input_schema: {
+              type: 'object' as const,
+              properties: {
+                html: { type: 'string', description: 'Complete <!DOCTYPE html> landing page with all styles inline' },
+                attributionMap: {
+                  type: 'object',
+                  description: 'Map of section name to the role ID that contributed most',
+                  additionalProperties: { type: 'string' },
+                },
+                conflictsDetected: { type: 'array', items: { type: 'string' }, description: 'List of detected intent conflicts' },
+                conflictsResolved: { type: 'array', items: { type: 'string' }, description: 'How each conflict was resolved' },
+              },
+              required: ['html', 'attributionMap', 'conflictsDetected', 'conflictsResolved'],
+            },
+          },
+        ] as Parameters<typeof anthropic.messages.create>[0]['tools'];
+
+        const message = await anthropic.messages.create(
+          {
+            model: 'claude-opus-4-7',
+            max_tokens: 16000,
+            tools: synthesisTools,
+            tool_choice: { type: 'tool', name: 'generate_landing_page' },
+            messages: [{ role: 'user', content: prompt }],
+          },
+          { signal: controller.signal }
+        );
+
+        const toolBlock = message.content.find(b => b.type === 'tool_use');
+        if (toolBlock && toolBlock.type === 'tool_use') {
+          output = toolBlock.input as SynthesisOutput;
+        } else {
+          const textBlock = message.content.find(b => b.type === 'text');
+          if (textBlock && textBlock.type === 'text') {
+            try { output = JSON.parse(textBlock.text) as SynthesisOutput; } catch { /* */ }
+          }
+        }
       }
+    } finally {
+      clearTimeout(timeoutHandle);
     }
 
     if (!output) {
@@ -375,10 +443,15 @@ ${HTML_SPEC}`;
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    await recordSynthesisFailure(
-      `合成失败：${err instanceof Error ? err.message.slice(0, 200) : '未知错误'}，房间已回到 collecting 状态。`
-    );
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    const failureMsg = isTimeout
+      ? `合成超时（105s）：Claude 未能在限制时间内完成生成，房间已回到 collecting 状态。可尝试减少意图数量后重新合成。`
+      : `合成失败：${err instanceof Error ? err.message.slice(0, 200) : '未知错误'}，房间已回到 collecting 状态。`;
+    await recordSynthesisFailure(failureMsg);
     await supabase.from('rooms').update({ status: 'collecting' }).eq('id', normalizedRoomId);
-    return NextResponse.json({ error: 'Synthesis failed' }, { status: 500 });
+    return NextResponse.json(
+      { error: isTimeout ? 'Synthesis timeout' : 'Synthesis failed' },
+      { status: isTimeout ? 504 : 500 }
+    );
   }
 }

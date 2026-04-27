@@ -36,8 +36,29 @@ function injectAttribution(
       if (!r) return;
       this.style.outline = '2px solid ' + r.color + '60';
       this.style.outlineOffset = '4px';
-      var preview = INTENTS[role] ? '<div style="font-size:11px;color:rgba(255,255,255,0.38);font-style:italic;margin-top:5px;padding-left:16px;line-height:1.4;">「' + INTENTS[role] + '」</div>' : '';
-      tip.innerHTML = '<div style="display:flex;align-items:center;gap:8px;"><span style="width:8px;height:8px;border-radius:50%;background:'+r.color+';display:inline-block;flex-shrink:0;"></span><span style="color:'+r.color+';font-weight:600;">'+r.label+'</span><span style="color:rgba(255,255,255,0.5);">贡献了这个区块</span></div>' + preview;
+      while (tip.firstChild) tip.removeChild(tip.firstChild);
+      var header = document.createElement('div');
+      header.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      var dot = document.createElement('span');
+      dot.style.cssText = 'width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0;';
+      dot.style.background = r.color;
+      var nameEl = document.createElement('span');
+      nameEl.style.cssText = 'font-weight:600;';
+      nameEl.style.color = r.color;
+      nameEl.textContent = r.label;
+      var descEl = document.createElement('span');
+      descEl.style.color = 'rgba(255,255,255,0.5)';
+      descEl.textContent = '贡献了这个区块';
+      header.appendChild(dot);
+      header.appendChild(nameEl);
+      header.appendChild(descEl);
+      tip.appendChild(header);
+      if (INTENTS[role]) {
+        var prevEl = document.createElement('div');
+        prevEl.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.38);font-style:italic;margin-top:5px;padding-left:16px;line-height:1.4;';
+        prevEl.textContent = '「' + INTENTS[role] + '」';
+        tip.appendChild(prevEl);
+      }
       tip.style.opacity = '1';
     });
     el.addEventListener('mouseleave', function() {
@@ -118,6 +139,7 @@ export default function ResultPage() {
   const [resetting, setResetting] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [recommendedActions, setRecommendedActions] = useState<DeepWorkRecommendedAction[]>([]);
+  const [failureSummary, setFailureSummary] = useState<string | null>(null);
   const [attributionMode, setAttributionMode] = useState<'hover' | 'always'>('always');
   const [roleIntentPreviews, setRoleIntentPreviews] = useState<Partial<Record<string, string>>>({});
   const [compareMode, setCompareMode] = useState(false);
@@ -248,20 +270,24 @@ export default function ResultPage() {
   useEffect(() => {
     if (!id) return;
     fetch(`/api/workspace?roomId=${encodeURIComponent(id)}`)
-      .then(r => r.ok ? (r.json() as Promise<{ snapshot?: { recommendedNextActions?: DeepWorkRecommendedAction[] } }>) : null)
+      .then(r => r.ok ? (r.json() as Promise<{ snapshot?: { recommendedNextActions?: DeepWorkRecommendedAction[] }; recentEvents?: Array<{ type: string; section?: string; summary?: string; recordedAt?: string }> }>) : null)
       .then(data => {
         const actions = data?.snapshot?.recommendedNextActions ?? [];
         setRecommendedActions(actions.filter(a => a.priority !== 'p2'));
+        const failureEvents = (data?.recentEvents ?? [])
+          .filter(e => e.type === 'summary.updated' && e.section === '合成流程' && e.summary)
+          .sort((a, b) => (b.recordedAt ?? '').localeCompare(a.recordedAt ?? ''));
+        if (failureEvents.length > 0) setFailureSummary(failureEvents[0].summary ?? null);
       })
       .catch(() => null);
   }, [id, allResults.length]);
 
   if (loading) {
     return (
-      <div className="h-screen bg-[#faf7f2] flex items-center justify-center">
+      <div className="h-screen bg-[var(--c-bg)] flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-black/[0.06] border-t-black/30 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-[#a8a29e] text-sm">加载中...</p>
+          <div className="w-8 h-8 border-2 border-[var(--c-border-1)] border-t-black/30 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-[var(--c-text-5)] text-sm">加载中...</p>
         </div>
       </div>
     );
@@ -271,16 +297,16 @@ export default function ResultPage() {
     const isSynthesizing = roomStatus === 'synthesizing';
     const isSynthesisFailed = roomStatus === 'collecting' && !isSynthesizing;
     return (
-      <div className="h-screen bg-[#faf7f2] flex items-center justify-center">
+      <div className="h-screen bg-[var(--c-bg)] flex items-center justify-center">
         <div className="text-center max-w-xs mx-auto px-6">
           {isSynthesizing ? (
             <>
               <div className="w-14 h-14 mx-auto mb-7 relative flex items-center justify-center">
                 <div className="absolute inset-0 rounded-full border border-purple-500/25 animate-ping" />
                 <div className="absolute inset-0 rounded-full border border-purple-500/10 scale-110 animate-ping [animation-delay:0.3s]" />
-                <div className="w-14 h-14 rounded-full border-2 border-black/[0.06] border-t-purple-500/70 animate-spin" />
+                <div className="w-14 h-14 rounded-full border-2 border-[var(--c-border-1)] border-t-purple-500/70 animate-spin" />
               </div>
-              <p className="text-[#1c1917] text-sm font-medium mb-1">合成进行中</p>
+              <p className="text-[var(--c-text-1)] text-sm font-medium mb-1">合成进行中</p>
               <p className="text-purple-600/70 text-[11px] mb-5">
                 {elapsedSec < 15 && '分析角色意图分布...'}
                 {elapsedSec >= 15 && elapsedSec < 35 && '整合多角色视角...'}
@@ -294,7 +320,7 @@ export default function ResultPage() {
                   style={{ width: `${Math.min((elapsedSec / 90) * 100, 98)}%` }}
                 />
               </div>
-              <p className="text-[#c4bcb4] text-[11px] font-mono">
+              <p className="text-[var(--c-text-6)] text-[11px] font-mono">
                 {elapsedSec > 0 ? `已用时 ${elapsedSec}s · 预计 30–90s` : '等待结果中...'}
               </p>
             </>
@@ -311,9 +337,9 @@ export default function ResultPage() {
                 </svg>
               </div>
               <p className="text-red-500/80 text-sm font-medium mb-2">合成失败</p>
-              <p className="text-[#78716c] text-xs leading-relaxed mb-7">
-                Claude 合成超时或遇到错误，房间已重置为收集状态。<br />
-                可返回房间重新触发合成。
+              <p className="text-[var(--c-text-4)] text-xs leading-relaxed mb-7">
+                {failureSummary ?? '合成超时或遇到错误，房间已重置为收集状态。'}
+                <br />可返回房间重新触发合成。
               </p>
               <div className="space-y-2">
                 <button
@@ -328,9 +354,9 @@ export default function ResultPage() {
                 <button
                   onClick={() => window.location.reload()}
                   className="w-full py-2 rounded-xl text-xs transition-colors"
-                  style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = '#78716c'; }}
-                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = '#a8a29e'; }}
+                  style={{ color: 'var(--c-text-5)', border: '1px solid transparent' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = 'var(--c-text-4)'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = 'var(--c-text-5)'; }}
                 >
                   刷新页面
                 </button>
@@ -340,15 +366,15 @@ export default function ResultPage() {
             <>
               <div
                 className="w-14 h-14 mx-auto mb-7 rounded-2xl flex items-center justify-center"
-                style={{ background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.08)' }}
+                style={{ background: 'var(--c-overlay)', border: '1px solid var(--c-border-3)' }}
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 3L3 8.5V15.5L12 21L21 15.5V8.5L12 3Z"/>
                   <path d="M12 12L3 8.5M12 12V21M12 12L21 8.5"/>
                 </svg>
               </div>
-              <p className="text-[#1c1917]/70 text-sm font-medium mb-2">尚无合成结果</p>
-              <p className="text-[#78716c] text-xs leading-relaxed mb-7">
+              <p className="text-[var(--c-text-3)] text-sm font-medium mb-2">尚无合成结果</p>
+              <p className="text-[var(--c-text-4)] text-xs leading-relaxed mb-7">
                 各角色提交意图后，房主可在房间页面点击「开始合成」，<br />
                 Claude 将整合所有意图生成产品落地页。
               </p>
@@ -356,18 +382,18 @@ export default function ResultPage() {
                 <button
                   onClick={() => router.push(`/room/${id}`)}
                   className="w-full py-2.5 rounded-xl text-sm font-medium transition-all"
-                  style={{ backgroundColor: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', color: '#57534e' }}
-                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(0,0,0,0.07)'; }}
-                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(0,0,0,0.04)'; }}
+                  style={{ backgroundColor: 'var(--c-overlay)', border: '1px solid var(--c-border-3)', color: 'var(--c-text-3)' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'var(--c-overlay-md)'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'var(--c-overlay)'; }}
                 >
                   ← 返回房间采集意图
                 </button>
                 <button
                   onClick={() => window.location.reload()}
                   className="w-full py-2 rounded-xl text-xs transition-colors"
-                  style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = '#78716c'; }}
-                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = '#a8a29e'; }}
+                  style={{ color: 'var(--c-text-5)', border: '1px solid transparent' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = 'var(--c-text-4)'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = 'var(--c-text-5)'; }}
                 >
                   刷新页面
                 </button>
@@ -394,19 +420,19 @@ export default function ResultPage() {
   const compareResult = compareMode && activeIndex > 0 ? allResults[activeIndex - 1] : null;
 
   return (
-    <div className="h-screen bg-[#faf7f2] flex flex-col">
+    <div className="h-screen bg-[var(--c-bg)] flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-black/[0.07] flex-shrink-0">
+      <div className="flex items-center justify-between px-6 py-3 bg-[var(--c-surface)] border-b border-[var(--c-border-2)] flex-shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={handleContinue}
             disabled={resetting}
-            className="text-[#78716c] hover:text-[#1c1917] transition-colors text-sm disabled:opacity-50"
+            className="text-[var(--c-text-4)] hover:text-[var(--c-text-1)] transition-colors text-sm disabled:opacity-50"
           >
             {resetting ? '重置中...' : `← 继续迭代 · Round ${latestRound + 1}`}
           </button>
-          <span className="text-[#d6d3d1]">·</span>
-          <span className="text-sm text-[#78716c]">
+          <span className="text-[var(--c-text-6)]">·</span>
+          <span className="text-sm text-[var(--c-text-4)]">
             {compareMode && compareResult
               ? `对比 · R${compareResult.round} → R${activeResult.round}`
               : `合成结果 · Round ${activeResult.round}`}
@@ -429,7 +455,7 @@ export default function ResultPage() {
               style={
                 compareMode
                   ? { borderColor: 'rgba(59,130,246,0.35)', color: '#2563eb', backgroundColor: 'rgba(59,130,246,0.06)' }
-                  : { borderColor: 'rgba(0,0,0,0.08)', color: '#78716c', backgroundColor: 'transparent' }
+                  : { borderColor: 'var(--c-border-3)', color: 'var(--c-text-4)', backgroundColor: 'transparent' }
               }
             >
               {compareMode ? '对比模式 ✓' : '版本对比'}
@@ -448,10 +474,9 @@ export default function ResultPage() {
           </button>
           <button
             onClick={() => {
-              void navigator.clipboard.writeText(window.location.href).then(() => {
-                setLinkCopied(true);
-                setTimeout(() => setLinkCopied(false), 1800);
-              });
+              navigator.clipboard.writeText(window.location.href)
+                .then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1800); })
+                .catch(() => null);
             }}
             className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
             style={
@@ -464,7 +489,7 @@ export default function ResultPage() {
           </button>
           <button
             onClick={() => downloadHtml(activeResult.html_content, activeResult.round, id)}
-            className="text-xs px-3 py-1.5 rounded-lg border border-black/[0.08] text-[#78716c] hover:text-[#1c1917] hover:border-black/[0.15] transition-colors"
+            className="text-xs px-3 py-1.5 rounded-lg border border-[var(--c-border-3)] text-[var(--c-text-4)] hover:text-[var(--c-text-1)] hover:border-[var(--c-border-4)] transition-colors"
           >
             下载 HTML ↓
           </button>
@@ -475,10 +500,10 @@ export default function ResultPage() {
         {/* HTML preview — single or split-compare */}
         <div className="flex-1 flex overflow-hidden">
           {compareResult && (
-            <div className="flex-1 relative border-r border-black/[0.07] overflow-hidden">
+            <div className="flex-1 relative border-r border-[var(--c-border-2)] overflow-hidden">
               <div
                 className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[10px] font-mono px-2.5 py-0.5 rounded-full pointer-events-none select-none"
-                style={{ background: 'rgba(255,255,255,0.92)', color: '#a8a29e', border: '1px solid rgba(0,0,0,0.08)' }}
+                style={{ background: 'var(--c-surface)', color: 'var(--c-text-5)', border: '1px solid var(--c-border-3)' }}
               >
                 R{compareResult.round}
               </div>
@@ -511,11 +536,11 @@ export default function ResultPage() {
         </div>
 
         {/* Right sidebar */}
-        <div className="w-56 bg-[#f5f0e8] border-l border-black/[0.07] overflow-y-auto flex-shrink-0 flex flex-col">
+        <div className="w-56 bg-[var(--c-sidebar)] border-l border-[var(--c-border-2)] overflow-y-auto flex-shrink-0 flex flex-col">
           {/* Round history */}
           {allResults.length > 1 && (
-            <div className="p-4 border-b border-black/[0.06]">
-              <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">迭代历史</p>
+            <div className="p-4 border-b border-[var(--c-border-1)]">
+              <p className="text-xs text-[var(--c-text-5)] uppercase tracking-wider mb-3">迭代历史</p>
               <div className="space-y-1.5">
                 {allResults.map(r => {
                   const diff = attributionDiffs.get(r.round);
@@ -526,16 +551,16 @@ export default function ResultPage() {
                       className="w-full flex flex-col rounded-lg px-3 py-2 text-left transition-colors"
                       style={
                         activeRound === r.round
-                          ? { backgroundColor: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)' }
+                          ? { backgroundColor: 'var(--c-overlay-md)', border: '1px solid var(--c-border-3)' }
                           : compareResult && r.round === compareResult.round
                             ? { backgroundColor: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.18)' }
                             : { border: '1px solid transparent' }
                       }
                     >
                       <div className="flex items-center gap-1.5 w-full">
-                        <span className="text-xs font-mono text-[#78716c]">R{r.round}</span>
+                        <span className="text-xs font-mono text-[var(--c-text-4)]">R{r.round}</span>
                         {r.attribution_map && Object.keys(r.attribution_map).length > 0 && (
-                          <span className="text-[9px] font-mono text-[#c4bcb4]">{Object.keys(r.attribution_map).length}板</span>
+                          <span className="text-[9px] font-mono text-[var(--c-text-6)]">{Object.keys(r.attribution_map).length}板</span>
                         )}
                         {compareResult && r.round === compareResult.round && (
                           <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-600/70 font-medium">base</span>
@@ -545,7 +570,7 @@ export default function ResultPage() {
                             {diff.length} 变
                           </span>
                         )}
-                        <span className="text-xs text-[#c4bcb4] flex-1 text-right">
+                        <span className="text-xs text-[var(--c-text-6)] flex-1 text-right">
                           {new Date(r.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                         {r.round === latestRound && (
@@ -561,8 +586,8 @@ export default function ResultPage() {
 
           {/* Recommended next actions */}
           {recommendedActions.length > 0 && (
-            <div className="p-4 border-b border-black/[0.06]">
-              <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">下一步行动</p>
+            <div className="p-4 border-b border-[var(--c-border-1)]">
+              <p className="text-xs text-[var(--c-text-5)] uppercase tracking-wider mb-3">下一步行动</p>
               <div className="space-y-2">
                 {recommendedActions.map(action => (
                   <div
@@ -583,11 +608,11 @@ export default function ResultPage() {
                     >
                       {action.priority.toUpperCase()}
                     </span>
-                    <p className="text-[11px] text-[#57534e] leading-snug">{action.summary}</p>
+                    <p className="text-[11px] text-[var(--c-text-3)] leading-snug">{action.summary}</p>
                     {action.affectedSections && action.affectedSections.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1.5">
                         {action.affectedSections.map(s => (
-                          <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/[0.04] text-[#a8a29e] border border-black/[0.06]">{s}</span>
+                          <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--c-overlay)] text-[var(--c-text-5)] border border-[var(--c-border-1)]">{s}</span>
                         ))}
                       </div>
                     )}
@@ -599,7 +624,7 @@ export default function ResultPage() {
 
           {/* Attribution map */}
           <div className="p-4 flex-1">
-            <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-4">归因摘要</p>
+            <p className="text-xs text-[var(--c-text-5)] uppercase tracking-wider mb-4">归因摘要</p>
 
             {activeResult.attribution_map && Object.entries(activeResult.attribution_map).map(([section, roleId]) => {
               const r = ROLES[roleId as RoleId];
@@ -610,10 +635,10 @@ export default function ResultPage() {
                   <div className="w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0" style={{ backgroundColor: r.color }} />
                   <div>
                     <span className="text-xs font-medium" style={{ color: r.color }}>{r.label}</span>
-                    <p className="text-xs text-[#78716c] leading-snug">
+                    <p className="text-xs text-[var(--c-text-4)] leading-snug">
                       {section}
                       {intentCount > 0 && (
-                        <span className="ml-1.5 text-[9px] text-[#c4bcb4] font-mono">{intentCount} 条</span>
+                        <span className="ml-1.5 text-[9px] text-[var(--c-text-6)] font-mono">{intentCount} 条</span>
                       )}
                     </p>
                   </div>
@@ -623,10 +648,10 @@ export default function ResultPage() {
 
             {/* Attribution diff */}
             {activeResult.round > 1 && attributionDiffs.has(activeResult.round) && (
-              <div className="mt-5 pt-4 border-t border-black/[0.06]">
-                <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">本轮变化</p>
+              <div className="mt-5 pt-4 border-t border-[var(--c-border-1)]">
+                <p className="text-xs text-[var(--c-text-5)] uppercase tracking-wider mb-3">本轮变化</p>
                 {attributionDiffs.get(activeResult.round)!.length === 0 ? (
-                  <p className="text-xs text-[#c4bcb4]">归因无变化</p>
+                  <p className="text-xs text-[var(--c-text-6)]">归因无变化</p>
                 ) : (
                   attributionDiffs.get(activeResult.round)!.map(d => {
                     const fromRole = d.from ? ROLES[d.from as RoleId] : null;
@@ -648,9 +673,9 @@ export default function ResultPage() {
                           }}
                         >
                           <div className="flex items-center justify-between mb-1">
-                            <p className="text-[10px] text-[#78716c] leading-snug">{d.section}</p>
+                            <p className="text-[10px] text-[var(--c-text-4)] leading-snug">{d.section}</p>
                             {hasIntents && (
-                              <span className="text-[9px] text-[#c4bcb4] group-hover:text-[#78716c] transition-colors">
+                              <span className="text-[9px] text-[var(--c-text-6)] group-hover:text-[var(--c-text-4)] transition-colors">
                                 {isExpanded ? '▲' : '▼'}
                               </span>
                             )}
@@ -659,14 +684,14 @@ export default function ResultPage() {
                             {fromRole ? (
                               <span className="text-[10px] font-medium" style={{ color: fromRole.color }}>{fromRole.label}</span>
                             ) : (
-                              <span className="text-[10px] text-[#c4bcb4]">新增</span>
+                              <span className="text-[10px] text-[var(--c-text-6)]">新增</span>
                             )}
-                            <span className="text-[#c4bcb4] text-[10px]">→</span>
+                            <span className="text-[var(--c-text-6)] text-[10px]">→</span>
                             <span className="text-[10px] font-semibold" style={{ color: toRole.color }}>{toRole.label}</span>
                           </div>
                         </button>
                         {isExpanded && hasIntents && (
-                          <div className="mt-2 pl-2 border-l border-black/[0.06] space-y-1.5">
+                          <div className="mt-2 pl-2 border-l border-[var(--c-border-1)] space-y-1.5">
                             {sectionIntents[d.section].map((intent, idx) => {
                               const r = ROLES[intent.role as RoleId];
                               return (
@@ -674,7 +699,7 @@ export default function ResultPage() {
                                   <span className="text-[9px] font-semibold" style={{ color: r?.color ?? '#a8a29e' }}>
                                     {r?.label ?? intent.role}
                                   </span>
-                                  <p className="text-[9px] text-[#78716c] leading-snug mt-0.5">
+                                  <p className="text-[9px] text-[var(--c-text-4)] leading-snug mt-0.5">
                                     {intent.content.length > 65 ? intent.content.slice(0, 65) + '…' : intent.content}
                                   </p>
                                 </div>
@@ -690,22 +715,22 @@ export default function ResultPage() {
             )}
 
             {activeResult.conflicts_resolved && activeResult.conflicts_resolved.length > 0 && (
-              <div className="mt-5 pt-4 border-t border-black/[0.06]">
-                <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">冲突解决</p>
+              <div className="mt-5 pt-4 border-t border-[var(--c-border-1)]">
+                <p className="text-xs text-[var(--c-text-5)] uppercase tracking-wider mb-3">冲突解决</p>
                 {activeResult.conflicts_resolved.map((c, i) => (
-                  <p key={i} className="text-xs text-[#78716c] mb-2 leading-snug">{c}</p>
+                  <p key={i} className="text-xs text-[var(--c-text-4)] mb-2 leading-snug">{c}</p>
                 ))}
               </div>
             )}
 
             {/* Role color legend */}
-            <div className="mt-5 pt-4 border-t border-black/[0.06]">
-              <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">角色图例</p>
+            <div className="mt-5 pt-4 border-t border-[var(--c-border-1)]">
+              <p className="text-xs text-[var(--c-text-5)] uppercase tracking-wider mb-3">角色图例</p>
               <div className="space-y-1.5">
                 {Object.entries(ROLES).map(([roleId, roleInfo]) => (
                   <div key={roleId} className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: roleInfo.color }} />
-                    <span className="text-xs text-[#78716c]">{roleInfo.label}</span>
+                    <span className="text-xs text-[var(--c-text-4)]">{roleInfo.label}</span>
                   </div>
                 ))}
               </div>

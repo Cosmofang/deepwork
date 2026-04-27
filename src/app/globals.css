@@ -2,9 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --c-bg: #ffffff;
+  --c-surface: #f8f9fa;
+  --c-sidebar: #f1f3f5;
+  --c-input: #f1f3f5;
+
+  --c-text-1: #111827;
+  --c-text-2: #374151;
+  --c-text-3: #4b5563;
+  --c-text-4: #6b7280;
+  --c-text-5: #9ca3af;
+  --c-text-6: #d1d5db;
+
+  --c-border-1: rgba(0,0,0,0.05);
+  --c-border-2: rgba(0,0,0,0.07);
+  --c-border-3: rgba(0,0,0,0.09);
+  --c-border-4: rgba(0,0,0,0.13);
+  --c-border-5: rgba(0,0,0,0.22);
+
+  --c-overlay: rgba(0,0,0,0.03);
+  --c-overlay-md: rgba(0,0,0,0.06);
+
+  --c-btn-bg: #111827;
+  --c-btn-text: #ffffff;
+  --c-btn-hover: #1f2937;
+
+  --fs-title: 20px;
+}
+
+html.dark {
+  --c-bg: #0f0e0c;
+  --c-surface: #1a1916;
+  --c-sidebar: #141310;
+  --c-input: #201e1a;
+
+  --c-text-1: #f0ede8;
+  --c-text-2: #dbd8d2;
+  --c-text-3: #b8b3ab;
+  --c-text-4: #8c8580;
+  --c-text-5: #635f59;
+  --c-text-6: #45413c;
+
+  --c-border-1: rgba(255,255,255,0.05);
+  --c-border-2: rgba(255,255,255,0.07);
+  --c-border-3: rgba(255,255,255,0.09);
+  --c-border-4: rgba(255,255,255,0.13);
+  --c-border-5: rgba(255,255,255,0.24);
+
+  --c-overlay: rgba(255,255,255,0.04);
+  --c-overlay-md: rgba(255,255,255,0.07);
+
+  --c-btn-bg: #f0ede8;
+  --c-btn-text: #0f0e0c;
+  --c-btn-hover: #dbd8d2;
+}
+
 body {
-  background: #faf7f2;
-  color: #1c1917;
+  background: var(--c-bg);
+  color: var(--c-text-1);
 }
 
 * {
