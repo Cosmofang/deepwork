@@ -2,6 +2,89 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第六十四轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 63 的分屏对比视图完成了"视觉层面验证迭代改进"的核心演示能力。剩余 P1 优先级均在同一个文件（`result/page.tsx`）中，且相互配合：**板块覆盖度数字**让观众一眼量化每轮产物的完整度，**展开查看意图内容**让"本轮变化"从纯角色替换记录升级为可解释的归因追溯。两个改动共用同一次 intent 数据库查询，因此合并在一个 Cycle 中实现。
+
+**改动思路**：
+- 板块覆盖度：直接从已加载的 `r.attribution_map` 计算 `Object.keys(r.attribution_map).length`，零额外查询
+- 展开意图内容：把现有 `select('content, participant:...')` 查询扩展为 `select('content, section, participant:...')`，在同一个回调里同时构建 `bySection` 索引
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/result/page.tsx` — 板块覆盖度 + 可展开意图内容
+
+**新增状态**：
+```ts
+const [sectionIntents, setSectionIntents] = useState<Record<string, Array<{ role: string; content: string }>>>({});
+const [expandedDiffSections, setExpandedDiffSections] = useState<Set<string>>(new Set());
+```
+
+**扩展 intent 查询**（原有查询新增 `section` 字段，同一次请求完成两种索引构建）：
+```ts
+.select('content, section, participant:participants!inner(role)')
+// ...在同一 .then() 中：
+const bySection: Record<string, Array<{ role: string; content: string }>> = {};
+// 按 intent.section 分组，每条存入 { role, content }
+setSectionIntents(bySection);
+```
+
+**板块覆盖度角标**（迭代历史按钮，位于 `R{n}` 文字后）：
+```tsx
+{r.attribution_map && Object.keys(r.attribution_map).length > 0 && (
+  <span className="text-[9px] font-mono text-gray-700">
+    {Object.keys(r.attribution_map).length}板
+  </span>
+)}
+```
+示例效果：`R2 · 7板 · [3变] · 14:31 ●`
+
+**可展开的「本轮变化」行**（原先纯展示，现在可点击）：
+- 每个 section 变化行变为 `<button>` 包裹，右侧显示 `▼` / `▲` toggle 图标
+- 仅当 `sectionIntents[d.section]?.length > 0` 时图标可见，无意图数据的 section 行不可展开
+- 展开后在 `border-l border-white/8` 细线右侧显示该板块所有意图：
+  - 角色名（用角色颜色）
+  - 意图内容（最多 65 字符，超出截断加 `…`）
+
+**展开叙事示例**：
+```
+本轮变化
+────────────────────
+首屏 Hero                         ▼
+  designer → copywriter
+  [展开后显示]
+  文案  ：打造情感共鸣的开头，突出"帮助团队达成共识"核心价值主张…
+  设计师：视觉冲击力强，用大图 + 渐变叠加层区分层次…
+
+定价                              ▼
+  新增 → product
+  [展开后显示]
+  产品经理：定价页需要三档方案，突出 Team 档的"每席位" 计价方式…
+```
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`result/page.tsx` bundle 7.65 kB → 8.01 kB（+360 bytes，合理）。
+
+### 演示叙事（现在完整可讲）
+
+1. **Round 1 合成完毕** → 结果页侧边栏显示 `R1 · 7板` 
+2. **继续迭代 → 合成 Round 2** → 侧边栏：`R1 · 7板` / `R2 · 7板 · [3变]`
+3. **点击"版本对比"** → 分屏，主持人讲"视觉变化"
+4. **关闭对比，点击 R2 按钮** → 归因面板显示「本轮变化」，`首屏 Hero: designer → copywriter ▼`
+5. **点击展开** → 两条意图内容展开："这就是为什么主题从设计驱动切换到文案驱动——文案师的意图更具体、更关注转化"
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径（Round 1 → Round 2 → 分屏对比 → 展开意图），验证全链路
+- **P0**：用真实 roomId 执行治理闭环验证脚本
+- **P1**：结果页头部"继续迭代"按钮应显示下一轮编号（"继续迭代 → Round 3"），而非通用文字，帮助主持人知道接下来是第几轮
+- **P1**：房间页面在 `synthesizing` 状态下，可以展示实时进度指示（目前仅有静态"合成中"文字），考虑增加轮询或 Supabase 订阅使状态自动刷新跳转到结果页
+
+---
+
 ## 第六十三轮分析 — 2026/04/27
 
 ### 本轮扫描结论

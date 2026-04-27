@@ -120,6 +120,8 @@ export default function ResultPage() {
   const [attributionMode, setAttributionMode] = useState<'hover' | 'always'>('always');
   const [roleIntentPreviews, setRoleIntentPreviews] = useState<Partial<Record<string, string>>>({});
   const [compareMode, setCompareMode] = useState(false);
+  const [sectionIntents, setSectionIntents] = useState<Record<string, Array<{ role: string; content: string }>>>({});
+  const [expandedDiffSections, setExpandedDiffSections] = useState<Set<string>>(new Set());
   const supabase = createClient();
 
   const activeResult = allResults.find(r => r.round === activeRound) ?? allResults[allResults.length - 1] ?? null;
@@ -178,16 +180,17 @@ export default function ResultPage() {
     return () => { supabase.removeChannel(channel); };
   }, [id]);
 
-  // Build roleId → representative intent text map for hover tooltip previews.
+  // Build roleId → intent preview map (hover tooltips) and section → intents map (diff expand).
   useEffect(() => {
     supabase
       .from('intents')
-      .select('content, participant:participants!inner(role)')
+      .select('content, section, participant:participants!inner(role)')
       .eq('room_id', id)
       .then(({ data }) => {
         if (!data) return;
         const previews: Partial<Record<string, string>> = {};
-        for (const intent of data as Array<{ content: string; participant: { role: string }[] }>) {
+        const bySection: Record<string, Array<{ role: string; content: string }>> = {};
+        for (const intent of data as Array<{ content: string; section: string; participant: { role: string }[] }>) {
           const role = intent.participant[0]?.role;
           if (!role) continue;
           if (!previews[role] || intent.content.length > previews[role]!.length) {
@@ -195,8 +198,12 @@ export default function ResultPage() {
               ? intent.content.slice(0, 70) + '…'
               : intent.content;
           }
+          const sec = intent.section ?? '';
+          if (!bySection[sec]) bySection[sec] = [];
+          bySection[sec].push({ role, content: intent.content });
         }
         setRoleIntentPreviews(previews);
+        setSectionIntents(bySection);
       });
   }, [id]);
 
@@ -379,8 +386,11 @@ export default function ResultPage() {
                             : { border: '1px solid transparent' }
                       }
                     >
-                      <div className="flex items-center gap-2 w-full">
+                      <div className="flex items-center gap-1.5 w-full">
                         <span className="text-xs font-mono text-gray-400">R{r.round}</span>
+                        {r.attribution_map && Object.keys(r.attribution_map).length > 0 && (
+                          <span className="text-[9px] font-mono text-gray-700">{Object.keys(r.attribution_map).length}板</span>
+                        )}
                         {compareResult && r.round === compareResult.round && (
                           <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400/60 font-medium">base</span>
                         )}
@@ -470,18 +480,56 @@ export default function ResultPage() {
                     const fromRole = d.from ? ROLES[d.from as RoleId] : null;
                     const toRole = ROLES[d.to as RoleId];
                     if (!toRole) return null;
+                    const hasIntents = (sectionIntents[d.section]?.length ?? 0) > 0;
+                    const isExpanded = expandedDiffSections.has(d.section);
                     return (
                       <div key={d.section} className="mb-3">
-                        <p className="text-[10px] text-gray-600 mb-1 leading-snug">{d.section}</p>
-                        <div className="flex items-center gap-1.5">
-                          {fromRole ? (
-                            <span className="text-[10px] font-medium" style={{ color: fromRole.color }}>{fromRole.label}</span>
-                          ) : (
-                            <span className="text-[10px] text-gray-700">新增</span>
-                          )}
-                          <span className="text-gray-700 text-[10px]">→</span>
-                          <span className="text-[10px] font-semibold" style={{ color: toRole.color }}>{toRole.label}</span>
-                        </div>
+                        <button
+                          className="w-full text-left group"
+                          onClick={() => {
+                            if (!hasIntents) return;
+                            setExpandedDiffSections(s => {
+                              const next = new Set(s);
+                              if (next.has(d.section)) next.delete(d.section); else next.add(d.section);
+                              return next;
+                            });
+                          }}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-[10px] text-gray-600 leading-snug">{d.section}</p>
+                            {hasIntents && (
+                              <span className="text-[9px] text-gray-700 group-hover:text-gray-500 transition-colors">
+                                {isExpanded ? '▲' : '▼'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {fromRole ? (
+                              <span className="text-[10px] font-medium" style={{ color: fromRole.color }}>{fromRole.label}</span>
+                            ) : (
+                              <span className="text-[10px] text-gray-700">新增</span>
+                            )}
+                            <span className="text-gray-700 text-[10px]">→</span>
+                            <span className="text-[10px] font-semibold" style={{ color: toRole.color }}>{toRole.label}</span>
+                          </div>
+                        </button>
+                        {isExpanded && hasIntents && (
+                          <div className="mt-2 pl-2 border-l border-white/8 space-y-1.5">
+                            {sectionIntents[d.section].map((intent, idx) => {
+                              const r = ROLES[intent.role as RoleId];
+                              return (
+                                <div key={idx}>
+                                  <span className="text-[9px] font-semibold" style={{ color: r?.color ?? 'rgba(255,255,255,0.3)' }}>
+                                    {r?.label ?? intent.role}
+                                  </span>
+                                  <p className="text-[9px] text-gray-600 leading-snug mt-0.5">
+                                    {intent.content.length > 65 ? intent.content.slice(0, 65) + '…' : intent.content}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })
