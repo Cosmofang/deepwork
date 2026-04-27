@@ -2,6 +2,58 @@
 
 自主分析与工作记录。每次循环更新。
 
+## 第七十三轮分析 — 2026/04/27
+
+### 本轮扫描结论
+
+Cycle 72 完成了合成进度 spinner 的秒数 + 进度条反馈。当前 P1 是**「开始合成」后自动跳转结果页**——目前 `triggerSynthesis` 函数 `await` 整个 90s 的 Claude 合成 fetch，用户在房间页等待 90s 什么都看不见，然后才被 push 到结果页。这个延迟在演示中极为突兀。
+
+**实现路径**：
+- `triggerSynthesis` 改为同步函数：fire-and-forget 发出 fetch，立即 `router.push` 到结果页
+- Next.js Route Handler 在 Node.js 运行时里，即使浏览器导航离开（HTTP 连接断开），服务端代码会继续运行直至完成——合成不会中断
+- 结果页已经：① 初始化时读取 `roomStatus`（会是 `'synthesizing'`）→ 显示 spinner；② 订阅 `synthesis_results INSERT` → 结果出现时自动渲染；③ 订阅 `rooms UPDATE` → 感知失败时自动切换为失败 UI
+
+### 本轮完成的改动
+
+#### ✅ `src/app/room/[id]/page.tsx` — `triggerSynthesis` 改为 fire-and-forget
+
+**之前**（等待 90s 再跳转）：
+```ts
+const triggerSynthesis = async () => {
+  setSynthesizing(true);
+  const res = await fetch('/api/synthesize', { ... }); // blocks up to 90s
+  if (res.ok) router.push(`/room/${id}/result`);  // navigate only after completion
+  else { setRequestError(...); setSynthesizing(false); }
+};
+```
+
+**之后**（立即跳转）：
+```ts
+const triggerSynthesis = () => {
+  setSynthesizing(true);
+  localStorage.removeItem(`after_round:${id}`);
+  fetch('/api/synthesize', { ... }).catch(() => null); // fire-and-forget
+  router.push(`/room/${id}/result`); // immediate navigation
+};
+```
+
+**演示效果**：
+- 点击「开始合成」→ 立即跳转到结果页，看到 spinner + 进度条 + 阶段文字
+- 合成完成时自动渲染落地页，无需任何手动操作
+- 合成失败时结果页自动切换为红色失败 UI + 重试按钮（Cycle 70 实现）
+
+### 构建验证
+
+`npm run build` — ✅ 12 条路由，无 TypeScript 错误。`/room/[id]` bundle 9.96 kB → 9.89 kB（-70 bytes，删除了 async 逻辑）。commit `16c3ac3`。
+
+### 下一步优先级
+
+- **P0**：使用真实 `.env.local` 跑完整演示路径，验证全链路
+- **P1**：synthesize route 超时体验优化 — 90s AbortController timeout 触发后，catch 块把房间静默回退到 collecting；可以在 catch 里区分 abort 错误，写一条带错误信息的合成记录，让结果页能显示"超时原因"
+- **P1**：`一键填充` 后自动滚动意图列表到最新 intent，避免用户不知道填充完成
+
+---
+
 ## 第七十二轮分析 — 2026/04/27
 
 ### 本轮扫描结论
