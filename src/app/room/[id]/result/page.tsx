@@ -122,6 +122,7 @@ export default function ResultPage() {
   const [compareMode, setCompareMode] = useState(false);
   const [sectionIntents, setSectionIntents] = useState<Record<string, Array<{ role: string; content: string }>>>({});
   const [expandedDiffSections, setExpandedDiffSections] = useState<Set<string>>(new Set());
+  const [roomStatus, setRoomStatus] = useState<string | null>(null);
   const supabase = createClient();
 
   const activeResult = allResults.find(r => r.round === activeRound) ?? allResults[allResults.length - 1] ?? null;
@@ -139,19 +140,26 @@ export default function ResultPage() {
   };
 
   useEffect(() => {
-    supabase
-      .from('synthesis_results')
-      .select('*')
-      .eq('room_id', id)
-      .order('round', { ascending: true })
-      .then(({ data }) => {
-        const results = (data ?? []) as SynthesisResult[];
-        setAllResults(results);
-        if (results.length > 0) {
-          setActiveRound(results[results.length - 1].round);
-        }
-        setLoading(false);
-      });
+    Promise.all([
+      supabase
+        .from('synthesis_results')
+        .select('*')
+        .eq('room_id', id)
+        .order('round', { ascending: true }),
+      supabase
+        .from('rooms')
+        .select('status')
+        .eq('id', id)
+        .single(),
+    ]).then(([{ data: resultData }, { data: roomData }]) => {
+      const results = (resultData ?? []) as SynthesisResult[];
+      setAllResults(results);
+      if (results.length > 0) {
+        setActiveRound(results[results.length - 1].round);
+      }
+      if (roomData) setRoomStatus(roomData.status as string);
+      setLoading(false);
+    });
   }, [id]);
 
   // subscribe to new synthesis results (when re-synthesis completes)
@@ -232,16 +240,61 @@ export default function ResultPage() {
   }
 
   if (!activeResult) {
+    const isSynthesizing = roomStatus === 'synthesizing';
     return (
       <div className="h-screen bg-[#0a0a0a] flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-500">暂无合成结果</p>
-          <button
-            onClick={() => router.push(`/room/${id}`)}
-            className="mt-4 text-sm text-gray-500 hover:text-white transition-colors"
-          >
-            ← 返回房间
-          </button>
+        <div className="text-center max-w-xs mx-auto px-6">
+          {isSynthesizing ? (
+            <>
+              <div className="w-14 h-14 mx-auto mb-7 relative flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full border border-purple-500/25 animate-ping" />
+                <div className="absolute inset-0 rounded-full border border-purple-500/10 scale-110 animate-ping [animation-delay:0.3s]" />
+                <div className="w-14 h-14 rounded-full border-2 border-white/8 border-t-purple-400/80 animate-spin" />
+              </div>
+              <p className="text-white/80 text-sm font-medium mb-2">合成进行中</p>
+              <p className="text-gray-600 text-xs leading-relaxed mb-5">
+                Claude 正在整合各角色意图，生成产品落地页 HTML。<br />完成后将自动显示结果。
+              </p>
+              <p className="text-gray-700 text-[11px] font-mono">等待结果中...</p>
+            </>
+          ) : (
+            <>
+              <div
+                className="w-14 h-14 mx-auto mb-7 rounded-2xl flex items-center justify-center"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3L3 8.5V15.5L12 21L21 15.5V8.5L12 3Z"/>
+                  <path d="M12 12L3 8.5M12 12V21M12 12L21 8.5"/>
+                </svg>
+              </div>
+              <p className="text-white/70 text-sm font-medium mb-2">尚无合成结果</p>
+              <p className="text-gray-600 text-xs leading-relaxed mb-7">
+                各角色提交意图后，房主可在房间页面点击「开始合成」，<br />
+                Claude 将整合所有意图生成产品落地页。
+              </p>
+              <div className="space-y-2">
+                <button
+                  onClick={() => router.push(`/room/${id}`)}
+                  className="w-full py-2.5 rounded-xl text-sm font-medium transition-all"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.65)' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.1)'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.07)'; }}
+                >
+                  ← 返回房间采集意图
+                </button>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="w-full py-2 rounded-xl text-xs transition-colors"
+                  style={{ color: 'rgba(255,255,255,0.2)', border: '1px solid transparent' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.4)'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.2)'; }}
+                >
+                  刷新页面
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
