@@ -54,7 +54,6 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [populating, setPopulating] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('flow');
-  // Iteration context: set when user navigates back from the result page via "继续迭代".
   const [afterRound, setAfterRound] = useState(0);
   const [lastSynthesisAt, setLastSynthesisAt] = useState<string | null>(null);
   const intentsEndRef = useRef<HTMLDivElement>(null);
@@ -152,14 +151,12 @@ export default function RoomPage() {
       });
   }, [id]);
 
-  // Read iteration context from localStorage (set by result page on "继续迭代").
   useEffect(() => {
     const stored = localStorage.getItem(`after_round:${id}`);
     if (!stored) return;
     const round = parseInt(stored, 10);
     if (!round || isNaN(round)) return;
     setAfterRound(round);
-    // Fetch the timestamp of that synthesis round so we can split old vs. new intents.
     supabase
       .from('synthesis_results')
       .select('created_at')
@@ -313,8 +310,6 @@ export default function RoomPage() {
     setSynthesizing(true);
     setRequestError('');
     localStorage.removeItem(`after_round:${id}`);
-    // Fire-and-forget: the server runs to completion even after the browser navigates away.
-    // The result page subscribes to Supabase realtime and will auto-display results when done.
     fetch('/api/synthesize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -323,8 +318,6 @@ export default function RoomPage() {
     router.push(`/room/${id}/result`);
   };
 
-  // Drive the per-second elapsed counter shown in the synthesis overlay.
-  // Works for both the user who triggered synthesis and passive room viewers.
   useEffect(() => {
     const active = synthesizing || roomStatus === 'synthesizing';
     if (!active) {
@@ -362,7 +355,6 @@ export default function RoomPage() {
   const synthesisPhase = SYNTHESIS_PHASES.filter(p => synthesisElapsed >= p.after).at(-1)!;
 
   const currentRound = afterRound + 1;
-  // Split intents into previous-round (before last synthesis) and this-round (after).
   const prevRoundIntents = lastSynthesisAt
     ? filteredIntents.filter(i => new Date(i.created_at) <= new Date(lastSynthesisAt))
     : [];
@@ -370,7 +362,6 @@ export default function RoomPage() {
     ? filteredIntents.filter(i => new Date(i.created_at) > new Date(lastSynthesisAt))
     : filteredIntents;
 
-  // All contributing role IDs (deduped), used in the synthesis overlay
   const contributingRoleIds = Array.from(
     new Set(
       intents
@@ -383,8 +374,6 @@ export default function RoomPage() {
     intents.some(i => normalizeSectionName(i.section) === s)
   );
 
-  // Per-role intent count — derived from existing intents state, zero extra queries.
-  // Updates automatically via the existing intents realtime subscription.
   const intentCountByRole: Record<string, number> = {};
   for (const intent of intents) {
     const role = intent.participant?.role;
@@ -392,46 +381,42 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="h-screen bg-[#0a0a0a] flex flex-col overflow-hidden">
+    <div className="h-screen bg-[#faf7f2] flex flex-col overflow-hidden">
 
-      {/* ── Synthesis loading overlay ──────────────────────────────────────
-          Shown for ALL participants (trigger + passive) when synthesis runs.
-          Turns the 20-40s wait into a shared "witnessing" moment. */}
+      {/* Synthesis loading overlay */}
       {(synthesizing || roomStatus === 'synthesizing') && (
-        <div className="fixed inset-0 z-50 bg-[#0a0a0a] flex items-center justify-center">
+        <div className="fixed inset-0 z-50 bg-[#faf7f2] flex items-center justify-center">
           <div className="max-w-sm w-full px-6 text-center">
 
-            {/* Animated concentric rings */}
             <div className="relative w-20 h-20 mx-auto mb-8">
-              <div className="absolute inset-0 rounded-full border border-white/5" />
+              <div className="absolute inset-0 rounded-full border border-black/[0.06]" />
               <div
-                className="absolute inset-0 rounded-full border-2 border-transparent border-t-white/40 animate-spin"
+                className="absolute inset-0 rounded-full border-2 border-transparent border-t-black/30 animate-spin"
                 style={{ animationDuration: '1.4s' }}
               />
-              <div className="absolute inset-3 rounded-full border border-white/5" />
+              <div className="absolute inset-3 rounded-full border border-black/[0.06]" />
               <div
-                className="absolute inset-3 rounded-full border-2 border-transparent border-t-white/20 animate-spin"
+                className="absolute inset-3 rounded-full border-2 border-transparent border-t-black/15 animate-spin"
                 style={{ animationDuration: '2.2s', animationDirection: 'reverse' }}
               />
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-2.5 h-2.5 rounded-full bg-white/20" />
+                <div className="w-2.5 h-2.5 rounded-full bg-black/10" />
               </div>
             </div>
 
-            <h2 className="text-xl font-semibold text-white mb-2">
-              AI 正在合成{afterRound > 0 ? <span className="text-amber-400"> Round {currentRound}</span> : ''}
+            <h2 className="text-xl font-semibold text-[#1c1917] mb-2">
+              AI 正在合成{afterRound > 0 ? <span className="text-amber-600"> Round {currentRound}</span> : ''}
             </h2>
-            <p className="text-gray-500 text-sm mb-8">
+            <p className="text-[#78716c] text-sm mb-8">
               整合{' '}
-              <span className="text-white font-medium">{contributingRoleIds.length} 个角色</span>
+              <span className="text-[#1c1917] font-medium">{contributingRoleIds.length} 个角色</span>
               {' '}·{' '}
-              <span className="text-white font-medium">{intents.length} 条意图</span>
+              <span className="text-[#1c1917] font-medium">{intents.length} 条意图</span>
               {afterRound > 0 ? (
-                <>{' '}·{' '}<span className="text-amber-400/70 text-xs">在第 {afterRound} 轮基础上增量</span></>
+                <>{' '}·{' '}<span className="text-amber-600/70 text-xs">在第 {afterRound} 轮基础上增量</span></>
               ) : ' → 一个产物'}
             </p>
 
-            {/* Contributing role pills */}
             {contributingRoleIds.length > 0 && (
               <div className="flex flex-wrap justify-center gap-2 mb-8">
                 {contributingRoleIds.map(roleId => {
@@ -454,16 +439,14 @@ export default function RoomPage() {
               </div>
             )}
 
-            {/* Section breakdown */}
             {activeSections.length > 0 && (
-              <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 mb-8 text-left space-y-2.5">
+              <div className="rounded-2xl border border-black/[0.07] bg-black/[0.025] p-4 mb-8 text-left space-y-2.5">
                 {activeSections.map(section => {
                   const sectionIntents = intents.filter(
                     i => normalizeSectionName(i.section) === section
                   );
                   return (
                     <div key={section} className="flex items-center gap-3">
-                      {/* Role color dots */}
                       <div className="flex gap-0.5 flex-shrink-0">
                         {sectionIntents.slice(0, 6).map((intent, j) => {
                           const r = intent.participant ? ROLES[intent.participant.role as RoleId] : null;
@@ -471,16 +454,16 @@ export default function RoomPage() {
                             <div
                               key={j}
                               className="w-2 h-2 rounded-full"
-                              style={{ backgroundColor: r?.color || '#333' }}
+                              style={{ backgroundColor: r?.color || '#d4cfc8' }}
                             />
                           );
                         })}
                         {sectionIntents.length > 6 && (
-                          <div className="w-2 h-2 rounded-full bg-white/10" />
+                          <div className="w-2 h-2 rounded-full bg-black/[0.08]" />
                         )}
                       </div>
-                      <span className="text-sm text-gray-400 flex-1 truncate">{section}</span>
-                      <span className="text-xs text-gray-700 flex-shrink-0">{sectionIntents.length} 条</span>
+                      <span className="text-sm text-[#57534e] flex-1 truncate">{section}</span>
+                      <span className="text-xs text-[#a8a29e] flex-shrink-0">{sectionIntents.length} 条</span>
                     </div>
                   );
                 })}
@@ -488,49 +471,49 @@ export default function RoomPage() {
             )}
 
             <div className="space-y-1.5">
-              <p className="text-xs text-gray-400 transition-all duration-700">{synthesisPhase.label}</p>
-              <p className="text-xs text-gray-700">{synthesisElapsed}s · 完成后自动跳转</p>
+              <p className="text-xs text-[#57534e] transition-all duration-700">{synthesisPhase.label}</p>
+              <p className="text-xs text-[#a8a29e]">{synthesisElapsed}s · 完成后自动跳转</p>
             </div>
           </div>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-white/10 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-black/[0.07] flex-shrink-0 bg-white">
         <div className="flex items-center gap-2 md:gap-3 min-w-0">
-          <span className="font-bold text-sm md:text-base flex-shrink-0">DeepWork</span>
-          <span className="text-gray-600 hidden md:inline">·</span>
+          <span className="font-bold text-sm md:text-base flex-shrink-0 text-[#1c1917]">DeepWork</span>
+          <span className="text-[#c4bcb4] hidden md:inline">·</span>
           <button
             onClick={copyRoomCode}
-            className="font-mono text-gray-400 text-xs md:text-sm tracking-widest hover:text-white transition-colors truncate"
+            className="font-mono text-[#78716c] text-xs md:text-sm tracking-widest hover:text-[#1c1917] transition-colors truncate"
             title="点击复制房间码"
           >
             {copied ? '已复制 ✓' : id}
           </button>
           {afterRound > 0 && (
-            <span className="hidden md:inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border border-amber-500/30 text-amber-400 bg-amber-500/08 flex-shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+            <span className="hidden md:inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border border-amber-500/30 text-amber-600 bg-amber-50 flex-shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
               迭代 Round {currentRound}
             </span>
           )}
           {participants.length > 0 && (
-            <span className="text-xs text-gray-600 flex-shrink-0">{participants.length}人</span>
+            <span className="text-xs text-[#a8a29e] flex-shrink-0">{participants.length}人</span>
           )}
         </div>
         {participant && role && (
-          <div className="flex items-center gap-1.5 md:gap-2 bg-white/5 rounded-full px-2 md:px-3 py-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1.5 md:gap-2 bg-black/[0.04] rounded-full px-2 md:px-3 py-1.5 flex-shrink-0">
             <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: role.color }} />
-            <span className="text-sm text-gray-300 hidden md:inline">{participant.name}</span>
+            <span className="text-sm text-[#44403c] hidden md:inline">{participant.name}</span>
             <span className="text-xs" style={{ color: role.color }}>{role.label}</span>
           </div>
         )}
       </div>
 
-      {/* 3-panel layout (desktop) / single panel (mobile) */}
+      {/* 3-panel layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: My intent */}
-        <div className={`${mobileTab === 'intent' ? 'flex' : 'hidden'} md:flex w-full md:w-72 border-r border-white/10 flex-col p-4 flex-shrink-0`}>
-          <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">我的意图</div>
+        <div className={`${mobileTab === 'intent' ? 'flex' : 'hidden'} md:flex w-full md:w-72 border-r border-black/[0.07] flex-col p-4 flex-shrink-0 bg-[#f5f0e8]`}>
+          <div className="text-xs text-[#78716c] uppercase tracking-wider mb-3">我的意图</div>
           {role && (
             <div className="mb-3 flex items-center gap-2 text-sm" style={{ color: role.color }}>
               <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: role.color }} />
@@ -538,7 +521,7 @@ export default function RoomPage() {
             </div>
           )}
           <div className="mb-4">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">归入板块</p>
+            <p className="text-xs text-[#78716c] uppercase tracking-wider mb-2">归入板块</p>
             <div className="flex flex-wrap gap-2">
               {knownSections.map(section => {
                 const active = selectedSection === section;
@@ -549,8 +532,8 @@ export default function RoomPage() {
                     className="px-3 py-1.5 rounded-full text-xs transition-colors border"
                     style={
                       active
-                        ? { borderColor: 'rgba(255,255,255,0.3)', backgroundColor: 'rgba(255,255,255,0.08)', color: '#fff' }
-                        : { borderColor: 'rgba(255,255,255,0.08)', color: '#9ca3af' }
+                        ? { borderColor: 'rgba(0,0,0,0.25)', backgroundColor: 'rgba(0,0,0,0.07)', color: '#1c1917' }
+                        : { borderColor: 'rgba(0,0,0,0.08)', color: '#78716c' }
                     }
                   >
                     {section}
@@ -565,12 +548,12 @@ export default function RoomPage() {
                 onChange={e => setSectionDraft(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && sectionDraft.trim() && addSection()}
                 placeholder="新建板块，例如 Demo"
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-white/20 transition-colors"
+                className="flex-1 bg-white border border-black/[0.08] rounded-xl px-3 py-2 text-sm text-[#1c1917] placeholder-[#c4bcb4] focus:outline-none focus:border-black/20 transition-colors"
               />
               <button
                 onClick={addSection}
                 disabled={!sectionDraft.trim()}
-                className="px-3 py-2 rounded-xl text-xs border border-white/10 text-gray-300 hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="px-3 py-2 rounded-xl text-xs border border-black/[0.08] text-[#44403c] hover:bg-black/[0.04] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 新建
               </button>
@@ -585,25 +568,24 @@ export default function RoomPage() {
                 ? (role?.typical || '输入你的意图...')
                 : `针对「${selectedSection}」补充你的想法...`
             }
-            className="flex-1 bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-600 resize-none focus:outline-none focus:border-white/20 transition-colors"
+            className="flex-1 bg-white border border-black/[0.08] rounded-xl p-3 text-sm text-[#1c1917] placeholder-[#c4bcb4] resize-none focus:outline-none focus:border-black/20 transition-colors"
           />
           <button
             onClick={submitIntent}
             disabled={!input.trim()}
-            className="mt-3 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-30 border border-white/20 hover:bg-white/5"
+            className="mt-3 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-30 border border-black/[0.12] text-[#44403c] hover:bg-black/[0.04]"
           >
             提交意图
           </button>
-          <p className="text-[10px] text-gray-700 mt-2 text-center">⌘+Enter 快速提交</p>
-          {/* Demo helper: fill role-appropriate sample intent */}
+          <p className="text-[10px] text-[#c4bcb4] mt-2 text-center">⌘+Enter 快速提交</p>
           {participant && role?.demoIntents && role.demoIntents.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-white/5">
-              <p className="text-[10px] text-gray-700 mb-2">示例意图</p>
+            <div className="mt-3 pt-3 border-t border-black/[0.06]">
+              <p className="text-[10px] text-[#a8a29e] mb-2">示例意图</p>
               {role.demoIntents.map((demo, i) => (
                 <button
                   key={i}
                   onClick={() => { setInput(demo.content); setSelectedSection(demo.section); }}
-                  className="w-full text-left text-[10px] text-gray-600 hover:text-gray-400 leading-snug mb-1.5 transition-colors line-clamp-2"
+                  className="w-full text-left text-[10px] text-[#a8a29e] hover:text-[#57534e] leading-snug mb-1.5 transition-colors line-clamp-2"
                 >
                   [{demo.section}] {demo.content.slice(0, 40)}...
                 </button>
@@ -613,24 +595,24 @@ export default function RoomPage() {
         </div>
 
         {/* Center: All intents */}
-        <div className={`${mobileTab === 'flow' ? 'flex' : 'hidden'} md:flex flex-1 flex-col min-w-0`}>
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
+        <div className={`${mobileTab === 'flow' ? 'flex' : 'hidden'} md:flex flex-1 flex-col min-w-0 bg-[#faf7f2]`}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.07] flex-shrink-0">
             <div>
-              <span className="text-xs text-gray-500 uppercase tracking-wider">
-                协作流 <span className="text-gray-600">({filteredIntents.length})</span>
+              <span className="text-xs text-[#78716c] uppercase tracking-wider">
+                协作流 <span className="text-[#a8a29e]">({filteredIntents.length})</span>
               </span>
-              <p className="text-xs text-gray-700 mt-1">
+              <p className="text-xs text-[#a8a29e] mt-1">
                 实时看见其他人刚刚提交了什么，以及它属于哪个板块
               </p>
               {roomStatus === 'synthesizing' && (
-                <p className="text-xs text-amber-300 mt-1">另一台机器正在合成，当前房间已锁定</p>
+                <p className="text-xs text-amber-600 mt-1">另一台机器正在合成，当前房间已锁定</p>
               )}
             </div>
             <div className="flex items-center gap-2">
               {totalNewCount > 0 && (
                 <button
                   onClick={() => setNewIntentIds([])}
-                  className="px-3 py-1.5 rounded-full text-xs border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+                  className="px-3 py-1.5 rounded-full text-xs border border-emerald-500/30 text-emerald-700 hover:bg-emerald-50 transition-colors"
                 >
                   清空 {totalNewCount} 条新标记
                 </button>
@@ -639,7 +621,7 @@ export default function RoomPage() {
                 <button
                   onClick={() => populateDemo()}
                   disabled={populating}
-                  className="px-3 py-1.5 rounded-full text-xs border border-dashed border-white/15 text-gray-600 hover:text-gray-400 hover:border-white/25 transition-colors disabled:opacity-30"
+                  className="px-3 py-1.5 rounded-full text-xs border border-dashed border-black/[0.12] text-[#a8a29e] hover:text-[#57534e] hover:border-black/20 transition-colors disabled:opacity-30"
                   title="为缺席角色填充示例意图"
                 >
                   {populating ? '...' : `补全 ${6 - participants.length} 个角色`}
@@ -648,11 +630,11 @@ export default function RoomPage() {
               <button
                 onClick={triggerSynthesis}
                 disabled={intents.length === 0 || synthesizing || roomStatus === 'synthesizing'}
-                className="px-4 py-1.5 rounded-full text-sm font-medium bg-white text-black disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
+                className="px-4 py-1.5 rounded-full text-sm font-medium bg-[#1c1917] text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#2d2921] transition-colors"
               >
                 {synthesizing ? (
                   <span className="flex items-center gap-2">
-                    <span className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+                    <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
                     合成中
                   </span>
                 ) : '合成 →'}
@@ -660,14 +642,14 @@ export default function RoomPage() {
             </div>
           </div>
 
-          <div className="px-4 py-3 border-b border-white/10 flex gap-2 overflow-x-auto">
+          <div className="px-4 py-3 border-b border-black/[0.07] flex gap-2 overflow-x-auto">
             <button
               onClick={() => setSectionFilter('all')}
               className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-colors border"
               style={
                 sectionFilter === 'all'
-                  ? { borderColor: 'rgba(255,255,255,0.24)', color: '#fff', backgroundColor: 'rgba(255,255,255,0.08)' }
-                  : { borderColor: 'rgba(255,255,255,0.08)', color: '#9ca3af' }
+                  ? { borderColor: 'rgba(0,0,0,0.22)', color: '#1c1917', backgroundColor: 'rgba(0,0,0,0.06)' }
+                  : { borderColor: 'rgba(0,0,0,0.08)', color: '#78716c' }
               }
             >
               全部板块
@@ -681,8 +663,8 @@ export default function RoomPage() {
                   className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-colors border"
                   style={
                     sectionFilter === section
-                      ? { borderColor: 'rgba(255,255,255,0.24)', color: '#fff', backgroundColor: 'rgba(255,255,255,0.08)' }
-                      : { borderColor: 'rgba(255,255,255,0.08)', color: '#9ca3af' }
+                      ? { borderColor: 'rgba(0,0,0,0.22)', color: '#1c1917', backgroundColor: 'rgba(0,0,0,0.06)' }
+                      : { borderColor: 'rgba(0,0,0,0.08)', color: '#78716c' }
                   }
                 >
                   {section}
@@ -694,24 +676,23 @@ export default function RoomPage() {
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {requestError && (
-              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              <div className="rounded-2xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-600">
                 {requestError}
               </div>
             )}
             {filteredIntents.length === 0 ? (
-              <div className="text-center text-gray-600 text-sm mt-16">
+              <div className="text-center text-[#a8a29e] text-sm mt-16">
                 <p>这个板块还没有内容</p>
-                <p className="mt-2 text-xs text-gray-700">分享房间代码 <span className="font-mono text-gray-500">{id}</span> 给队友</p>
+                <p className="mt-2 text-xs text-[#c4bcb4]">分享房间代码 <span className="font-mono text-[#78716c]">{id}</span> 给队友</p>
               </div>
             ) : (
               <>
-                {/* Previous-round intents — dimmed, collapsed visually under a round divider */}
                 {prevRoundIntents.length > 0 && (
                   <>
                     <div className="flex items-center gap-3 px-1">
-                      <div className="flex-1 h-px bg-white/[0.06]" />
-                      <span className="text-[10px] text-gray-700 whitespace-nowrap">Round {afterRound} · {prevRoundIntents.length} 条已收录</span>
-                      <div className="flex-1 h-px bg-white/[0.06]" />
+                      <div className="flex-1 h-px bg-black/[0.06]" />
+                      <span className="text-[10px] text-[#a8a29e] whitespace-nowrap">Round {afterRound} · {prevRoundIntents.length} 条已收录</span>
+                      <div className="flex-1 h-px bg-black/[0.06]" />
                     </div>
                     {prevRoundIntents.map(intent => {
                       const p = intent.participant;
@@ -719,31 +700,30 @@ export default function RoomPage() {
                       return (
                         <div
                           key={intent.id}
-                          className="flex gap-3 rounded-2xl border p-3 opacity-35"
-                          style={{ borderColor: 'rgba(255,255,255,0.04)', backgroundColor: 'rgba(255,255,255,0.01)' }}
+                          className="flex gap-3 rounded-2xl border p-3 opacity-40"
+                          style={{ borderColor: 'rgba(0,0,0,0.05)', backgroundColor: 'rgba(0,0,0,0.015)' }}
                         >
-                          <div className="w-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: r?.color || '#333' }} />
+                          <div className="w-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: r?.color || '#d4cfc8' }} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="text-xs font-medium" style={{ color: r?.color || '#888' }}>{p?.name || '匿名'}</span>
-                              <span className="text-xs text-gray-600">{r?.label}</span>
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-500 border border-white/5">{normalizeSectionName(intent.section)}</span>
+                              <span className="text-xs font-medium" style={{ color: r?.color || '#78716c' }}>{p?.name || '匿名'}</span>
+                              <span className="text-xs text-[#a8a29e]">{r?.label}</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/[0.04] text-[#78716c] border border-black/[0.06]">{normalizeSectionName(intent.section)}</span>
                             </div>
-                            <p className="text-sm text-gray-500 leading-relaxed">{intent.content}</p>
+                            <p className="text-sm text-[#78716c] leading-relaxed">{intent.content}</p>
                           </div>
                         </div>
                       );
                     })}
                     {thisRoundIntents.length > 0 && (
                       <div className="flex items-center gap-3 px-1">
-                        <div className="flex-1 h-px bg-amber-500/20" />
-                        <span className="text-[10px] text-amber-500/60 whitespace-nowrap">Round {currentRound} 新增意图</span>
-                        <div className="flex-1 h-px bg-amber-500/20" />
+                        <div className="flex-1 h-px bg-amber-400/30" />
+                        <span className="text-[10px] text-amber-600/70 whitespace-nowrap">Round {currentRound} 新增意图</span>
+                        <div className="flex-1 h-px bg-amber-400/30" />
                       </div>
                     )}
                   </>
                 )}
-                {/* Current-round (or all) intents */}
                 {thisRoundIntents.map(intent => {
                   const p = intent.participant;
                   const r = p ? ROLES[p.role as RoleId] : null;
@@ -754,49 +734,48 @@ export default function RoomPage() {
                       className="flex gap-3 rounded-2xl border p-3 transition-colors"
                       style={
                         isNew
-                          ? { borderColor: 'rgba(16,185,129,0.32)', backgroundColor: 'rgba(16,185,129,0.08)' }
-                          : { borderColor: 'rgba(255,255,255,0.05)', backgroundColor: 'rgba(255,255,255,0.02)' }
+                          ? { borderColor: 'rgba(16,185,129,0.25)', backgroundColor: 'rgba(16,185,129,0.05)' }
+                          : { borderColor: 'rgba(0,0,0,0.06)', backgroundColor: 'white' }
                       }
                     >
                       <div
                         className="w-0.5 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: r?.color || '#444' }}
+                        style={{ backgroundColor: r?.color || '#d4cfc8' }}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-medium" style={{ color: r?.color || '#888' }}>
+                          <span className="text-xs font-medium" style={{ color: r?.color || '#78716c' }}>
                             {p?.name || '匿名'}
                           </span>
-                          <span className="text-xs text-gray-600">{r?.label}</span>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-400 border border-white/5">
+                          <span className="text-xs text-[#a8a29e]">{r?.label}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/[0.04] text-[#57534e] border border-black/[0.05]">
                             {normalizeSectionName(intent.section)}
                           </span>
                           {isNew && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                               NEW
                             </span>
                           )}
-                          <span className="text-xs text-gray-700 ml-auto">
+                          <span className="text-xs text-[#c4bcb4] ml-auto">
                             {new Date(intent.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-300 leading-relaxed">{intent.content}</p>
+                        <p className="text-sm text-[#44403c] leading-relaxed">{intent.content}</p>
                       </div>
                     </div>
                   );
                 })}
-                {/* Empty state for this round when previous round intents exist */}
                 {lastSynthesisAt && thisRoundIntents.length === 0 && (
                   <div className="text-center mt-4 py-4 space-y-2">
-                    <p className="text-gray-700 text-xs">在上方提交新的意图，或一键填充第 {currentRound} 轮示例</p>
+                    <p className="text-[#a8a29e] text-xs">在上方提交新的意图，或一键填充第 {currentRound} 轮示例</p>
                     <button
                       onClick={() => populateDemo(currentRound)}
                       disabled={populating}
-                      className="px-4 py-1.5 rounded-lg text-xs font-medium border border-dashed border-amber-500/30 text-amber-500/70 hover:text-amber-400 hover:border-amber-400/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="px-4 py-1.5 rounded-lg text-xs font-medium border border-dashed border-amber-400/40 text-amber-600 hover:text-amber-700 hover:border-amber-500/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {populating ? (
                         <span className="flex items-center gap-1.5">
-                          <span className="w-3 h-3 border border-amber-500/50 border-t-amber-400 rounded-full animate-spin" />
+                          <span className="w-3 h-3 border border-amber-400/50 border-t-amber-600 rounded-full animate-spin" />
                           填充中...
                         </span>
                       ) : `⚡ 填充第 ${currentRound} 轮示例`}
@@ -810,13 +789,12 @@ export default function RoomPage() {
         </div>
 
         {/* Right: Section status */}
-        <div className={`${mobileTab === 'sections' ? 'flex' : 'hidden'} md:flex w-full md:w-80 border-l border-white/10 flex-col flex-shrink-0`}>
-          <div className="px-4 py-3 border-b border-white/10 flex-shrink-0">
-            <span className="text-xs text-gray-500 uppercase tracking-wider">板块状态</span>
+        <div className={`${mobileTab === 'sections' ? 'flex' : 'hidden'} md:flex w-full md:w-80 border-l border-black/[0.07] flex-col flex-shrink-0 bg-[#f5f0e8]`}>
+          <div className="px-4 py-3 border-b border-black/[0.07] flex-shrink-0">
+            <span className="text-xs text-[#78716c] uppercase tracking-wider">板块状态</span>
           </div>
 
-          {/* Role roster — shows which of the 6 roles have joined */}
-          <div className="px-4 py-3 border-b border-white/[0.06] flex-shrink-0">
+          <div className="px-4 py-3 border-b border-black/[0.05] flex-shrink-0">
             <div className="flex flex-wrap gap-2">
               {ROLE_IDS.map(roleId => {
                 const r = ROLES[roleId];
@@ -829,19 +807,16 @@ export default function RoomPage() {
                     style={
                       joined
                         ? { borderColor: `${r.color}40`, backgroundColor: `${r.color}12`, color: r.color }
-                        : { borderColor: 'rgba(255,255,255,0.05)', color: '#4b5563' }
+                        : { borderColor: 'rgba(0,0,0,0.07)', color: '#c4bcb4' }
                     }
                   >
                     <div
                       className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: joined ? r.color : '#374151' }}
+                      style={{ backgroundColor: joined ? r.color : '#d4cfc8' }}
                     />
                     {r.label}
                     {count > 0 && (
-                      <span
-                        className="text-[9px] font-mono leading-none"
-                        style={{ opacity: 0.55 }}
-                      >
+                      <span className="text-[9px] font-mono leading-none" style={{ opacity: 0.55 }}>
                         {count}
                       </span>
                     )}
@@ -849,7 +824,7 @@ export default function RoomPage() {
                 );
               })}
             </div>
-            <p className="text-[10px] mt-2" style={{ color: participants.length >= 6 ? '#10b981' : '#374151' }}>
+            <p className="text-[10px] mt-2" style={{ color: participants.length >= 6 ? '#059669' : '#c4bcb4' }}>
               {participants.length >= 6 ? '全员就绪 ✓' : `${participants.length} / 6 位已加入`}
             </p>
           </div>
@@ -864,84 +839,84 @@ export default function RoomPage() {
                   <button
                     key={card.section}
                     onClick={() => setSectionFilter(card.section)}
-                    className="w-full text-left rounded-2xl border border-white/5 bg-white/[0.03] p-3 hover:bg-white/[0.05] transition-colors"
+                    className="w-full text-left rounded-2xl border border-black/[0.07] bg-white p-3 hover:bg-[#faf7f2] transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-white">{card.section}</span>
+                      <span className="text-sm text-[#1c1917]">{card.section}</span>
                       {card.newCount > 0 && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                           +{card.newCount} new
                         </span>
                       )}
-                      <span className="text-xs text-gray-600 ml-auto">{card.total} 条</span>
+                      <span className="text-xs text-[#a8a29e] ml-auto">{card.total} 条</span>
                     </div>
-                    <p className="text-xs text-gray-600 mt-1">{card.hint}</p>
+                    <p className="text-xs text-[#a8a29e] mt-1">{card.hint}</p>
                     {card.latestIntent ? (
-                      <div className="mt-3 pt-3 border-t border-white/5">
+                      <div className="mt-3 pt-3 border-t border-black/[0.05]">
                         <div className="flex items-center gap-2 text-xs mb-1">
-                          <span className="text-gray-500">最近更新</span>
-                          <span className="text-gray-300">{card.latestIntent.participant?.name || '匿名'}</span>
+                          <span className="text-[#78716c]">最近更新</span>
+                          <span className="text-[#44403c]">{card.latestIntent.participant?.name || '匿名'}</span>
                           {latestRoleInfo && (
                             <span style={{ color: latestRoleInfo.color }}>{latestRoleInfo.label}</span>
                           )}
                         </div>
-                        <p className="text-xs text-gray-500 leading-snug line-clamp-3">
+                        <p className="text-xs text-[#78716c] leading-snug line-clamp-3">
                           {card.latestIntent.content}
                         </p>
                       </div>
                     ) : (
-                      <p className="text-xs text-gray-700 mt-3">还没有人往这个板块提交内容</p>
+                      <p className="text-xs text-[#c4bcb4] mt-3">还没有人往这个板块提交内容</p>
                     )}
                   </button>
                 );
               })}
             </div>
 
-            <div className="mt-5 rounded-2xl border border-white/5 bg-white/[0.03] p-4 text-center">
+            <div className="mt-5 rounded-2xl border border-black/[0.07] bg-white p-4 text-center">
               {synthesizing ? (
                 <div>
-                  <div className="w-8 h-8 border-2 border-white/10 border-t-white/60 rounded-full animate-spin mx-auto mb-4" />
-                  <p className="text-gray-300 text-sm">AI 正在合成当前共识</p>
-                  <p className="text-xs text-gray-600 mt-1">通常需要 20–40 秒</p>
+                  <div className="w-8 h-8 border-2 border-black/[0.08] border-t-black/40 rounded-full animate-spin mx-auto mb-4" />
+                  <p className="text-[#44403c] text-sm">AI 正在合成当前共识</p>
+                  <p className="text-xs text-[#a8a29e] mt-1">通常需要 20–40 秒</p>
                 </div>
               ) : afterRound > 0 && thisRoundIntents.length === 0 ? (
                 <div>
-                  <p className="text-sm text-amber-400/80 mb-3">第 {currentRound} 轮暂无新意图</p>
+                  <p className="text-sm text-amber-600/80 mb-3">第 {currentRound} 轮暂无新意图</p>
                   <button
                     onClick={() => populateDemo(currentRound)}
                     disabled={populating}
-                    className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-amber-500/30 text-amber-500/70 hover:text-amber-400 hover:border-amber-400/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-amber-400/40 text-amber-600 hover:text-amber-700 hover:border-amber-500/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {populating ? (
                       <span className="flex items-center justify-center gap-2">
-                        <span className="w-3 h-3 border border-amber-500/50 border-t-amber-400 rounded-full animate-spin" />
+                        <span className="w-3 h-3 border border-amber-400/50 border-t-amber-600 rounded-full animate-spin" />
                         填充中...
                       </span>
                     ) : `⚡ 填充第 ${currentRound} 轮示例`}
                   </button>
-                  <p className="text-[10px] text-gray-700 mt-2">为所有角色补充第 {currentRound} 轮意图</p>
+                  <p className="text-[10px] text-[#c4bcb4] mt-2">为所有角色补充第 {currentRound} 轮意图</p>
                 </div>
               ) : intents.length > 0 ? (
                 <div>
-                  <p className="text-sm text-gray-300">当前已经收集 {intents.length} 条协作输入</p>
-                  <p className="text-xs text-gray-600 mt-1">准备好后点击上方「合成」生成最新 HTML</p>
+                  <p className="text-sm text-[#44403c]">当前已经收集 {intents.length} 条协作输入</p>
+                  <p className="text-xs text-[#a8a29e] mt-1">准备好后点击上方「合成」生成最新 HTML</p>
                 </div>
               ) : (
                 <div>
-                  <p className="text-sm text-gray-500 mb-3">还没有意图</p>
+                  <p className="text-sm text-[#a8a29e] mb-3">还没有意图</p>
                   <button
                     onClick={() => populateDemo()}
                     disabled={populating}
-                    className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-white/15 text-gray-500 hover:text-white hover:border-white/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full py-2.5 rounded-xl text-xs font-medium border border-dashed border-black/[0.12] text-[#78716c] hover:text-[#1c1917] hover:border-black/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {populating ? (
                       <span className="flex items-center justify-center gap-2">
-                        <span className="w-3 h-3 border border-gray-500 border-t-white rounded-full animate-spin" />
+                        <span className="w-3 h-3 border border-black/20 border-t-black/50 rounded-full animate-spin" />
                         填充中...
                       </span>
                     ) : '⚡ 一键填充演示数据'}
                   </button>
-                  <p className="text-[10px] text-gray-700 mt-2">为所有缺席角色创建示例意图</p>
+                  <p className="text-[10px] text-[#c4bcb4] mt-2">为所有缺席角色创建示例意图</p>
                 </div>
               )}
             </div>
@@ -949,26 +924,24 @@ export default function RoomPage() {
         </div>
       </div>
 
-      {/* Mobile bottom tab bar — hidden on desktop */}
-      <div className="md:hidden flex-shrink-0 border-t border-white/10 bg-[#0a0a0a]">
-        {/* Synthesis button row (only when there are intents) */}
+      {/* Mobile bottom tab bar */}
+      <div className="md:hidden flex-shrink-0 border-t border-black/[0.07] bg-white">
         {intents.length > 0 && (
           <div className="px-4 pt-3 pb-1">
             <button
               onClick={triggerSynthesis}
               disabled={intents.length === 0 || synthesizing || roomStatus === 'synthesizing'}
-              className="w-full py-2.5 rounded-xl text-sm font-medium bg-white text-black disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-colors"
+              className="w-full py-2.5 rounded-xl text-sm font-medium bg-[#1c1917] text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#2d2921] transition-colors"
             >
               {synthesizing ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
                   合成中...
                 </span>
               ) : `合成 → (${intents.length} 条意图)`}
             </button>
           </div>
         )}
-        {/* Tab bar */}
         <div className="flex">
           {([
             { tab: 'intent' as MobileTab, label: '我的意图', icon: '✍️' },
@@ -979,7 +952,7 @@ export default function RoomPage() {
               key={tab}
               onClick={() => setMobileTab(tab)}
               className="flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors relative"
-              style={{ color: mobileTab === tab ? '#fff' : '#6b7280' }}
+              style={{ color: mobileTab === tab ? '#1c1917' : '#a8a29e' }}
             >
               <span className="text-lg leading-none">{icon}</span>
               <span className="text-[10px]">{label}</span>
@@ -989,7 +962,7 @@ export default function RoomPage() {
                 </span>
               )}
               {mobileTab === tab && (
-                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-white" />
+                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-[#1c1917]" />
               )}
             </button>
           ))}

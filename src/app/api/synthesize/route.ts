@@ -9,7 +9,10 @@ import { ROLES } from '@/lib/roles';
 import { DEFAULT_SECTION, normalizeSectionName } from '@/lib/sections';
 import { RoleId } from '@/types';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  ...(process.env.ANTHROPIC_BASE_URL ? { baseURL: process.env.ANTHROPIC_BASE_URL } : {}),
+});
 
 export async function POST(req: NextRequest) {
   const { roomId } = await req.json() as {

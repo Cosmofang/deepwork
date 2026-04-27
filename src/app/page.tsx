@@ -83,45 +83,45 @@ export default function EntryPage() {
   const canJoin = name.trim() && role && roomCode.trim() && !loading;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#faf7f2] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold tracking-tight mb-2">DeepWork</h1>
-          <p className="text-gray-400 text-sm mb-1">6 个角色各提意图</p>
-          <p className="text-gray-600 text-xs mb-6">Claude 60 秒内将所有意图合成为一个产品落地页，并标注每个区块由谁主导</p>
-          <div className="flex items-center justify-center gap-6 text-xs text-gray-600">
+          <h1 className="text-4xl font-bold tracking-tight mb-2 text-[#1c1917]">DeepWork</h1>
+          <p className="text-[#57534e] text-sm mb-1">6 个角色各提意图</p>
+          <p className="text-[#a8a29e] text-xs mb-6">Claude 60 秒内将所有意图合成为一个产品落地页，并标注每个区块由谁主导</p>
+          <div className="flex items-center justify-center gap-6 text-xs text-[#a8a29e]">
             <div className="flex flex-col items-center gap-1.5">
-              <span className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 font-mono">1</span>
+              <span className="w-7 h-7 rounded-full bg-black/[0.04] border border-black/[0.08] flex items-center justify-center text-[#78716c] font-mono">1</span>
               <span>各选角色加入</span>
             </div>
-            <div className="w-8 h-px bg-white/10" />
+            <div className="w-8 h-px bg-black/[0.08]" />
             <div className="flex flex-col items-center gap-1.5">
-              <span className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 font-mono">2</span>
+              <span className="w-7 h-7 rounded-full bg-black/[0.04] border border-black/[0.08] flex items-center justify-center text-[#78716c] font-mono">2</span>
               <span>提交产品意图</span>
             </div>
-            <div className="w-8 h-px bg-white/10" />
+            <div className="w-8 h-px bg-black/[0.08]" />
             <div className="flex flex-col items-center gap-1.5">
-              <span className="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 font-mono">3</span>
+              <span className="w-7 h-7 rounded-full bg-black/[0.04] border border-black/[0.08] flex items-center justify-center text-[#78716c] font-mono">3</span>
               <span>Claude 合成落地页</span>
             </div>
           </div>
         </div>
 
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-5">
+        <div className="bg-white border border-black/[0.08] rounded-2xl p-6 space-y-5 shadow-sm">
           <div>
-            <label className="text-xs text-gray-400 uppercase tracking-wider mb-2 block">你的名字</label>
+            <label className="text-xs text-[#78716c] uppercase tracking-wider mb-2 block">你的名字</label>
             <input
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && canJoin && handleJoin()}
               placeholder="输入名字..."
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-white/30 transition-colors"
+              className="w-full bg-[#faf7f2] border border-black/[0.08] rounded-xl px-4 py-3 text-[#1c1917] placeholder-[#c4bcb4] focus:outline-none focus:border-black/20 transition-colors"
             />
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 uppercase tracking-wider mb-2 block">你的角色</label>
+            <label className="text-xs text-[#78716c] uppercase tracking-wider mb-2 block">你的角色</label>
             <div className="grid grid-cols-3 gap-2">
               {ROLE_IDS.map(id => {
                 const r = ROLES[id];
@@ -134,7 +134,7 @@ export default function EntryPage() {
                     style={
                       selected
                         ? { borderColor: r.color, color: r.color, backgroundColor: `${r.color}18` }
-                        : { borderColor: 'rgba(255,255,255,0.1)', color: '#9ca3af' }
+                        : { borderColor: 'rgba(0,0,0,0.08)', color: '#78716c', backgroundColor: 'transparent' }
                     }
                   >
                     <span className="block">{r.label}</span>
@@ -146,7 +146,7 @@ export default function EntryPage() {
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 uppercase tracking-wider mb-2 block">房间代码</label>
+            <label className="text-xs text-[#78716c] uppercase tracking-wider mb-2 block">房间代码</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -154,50 +154,50 @@ export default function EntryPage() {
                 onChange={e => setRoomCode(e.target.value.toUpperCase())}
                 placeholder="输入或生成"
                 maxLength={8}
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-white/30 transition-colors font-mono tracking-widest"
+                className="flex-1 bg-[#faf7f2] border border-black/[0.08] rounded-xl px-4 py-3 text-[#1c1917] placeholder-[#c4bcb4] focus:outline-none focus:border-black/20 transition-colors font-mono tracking-widest"
               />
               <button
                 onClick={generateCode}
-                className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-gray-400 hover:text-white hover:border-white/20 transition-colors text-sm whitespace-nowrap"
+                className="px-4 py-3 bg-[#faf7f2] border border-black/[0.08] rounded-xl text-[#78716c] hover:text-[#1c1917] hover:border-black/20 transition-colors text-sm whitespace-nowrap"
               >
                 生成
               </button>
             </div>
-            <p className="text-gray-700 text-xs mt-1.5">主持人点「生成」创建房间码，分享给其他5人，大家用同一个码进入同一个房间</p>
+            <p className="text-[#c4bcb4] text-xs mt-1.5">主持人点「生成」创建房间码，分享给其他5人，大家用同一个码进入同一个房间</p>
           </div>
 
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+          {error && <p className="text-red-500 text-sm">{error}</p>}
 
           <button
             onClick={handleJoin}
             disabled={!canJoin}
-            className="w-full py-3.5 rounded-xl font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-white text-black hover:bg-gray-100"
+            className="w-full py-3.5 rounded-xl font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-[#1c1917] text-white hover:bg-[#2d2921]"
           >
             {loading ? '加入中...' : '进入房间 →'}
           </button>
 
           <div className="relative flex items-center gap-3 pt-1">
-            <div className="flex-1 h-px bg-white/8" />
-            <span className="text-gray-700 text-[10px]">或</span>
-            <div className="flex-1 h-px bg-white/8" />
+            <div className="flex-1 h-px bg-black/[0.06]" />
+            <span className="text-[#c4bcb4] text-[10px]">或</span>
+            <div className="flex-1 h-px bg-black/[0.06]" />
           </div>
 
           <button
             onClick={handleSoloDemo}
             disabled={soloLoading}
             className="w-full py-2.5 rounded-xl text-sm transition-all disabled:opacity-40"
-            style={{ backgroundColor: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)', color: 'rgba(192,132,252,0.9)' }}
-            onMouseEnter={e => { if (!soloLoading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(168,85,247,0.14)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(168,85,247,0.08)'; }}
+            style={{ backgroundColor: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.18)', color: 'rgba(109,40,217,0.9)' }}
+            onMouseEnter={e => { if (!soloLoading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(124,58,237,0.1)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(124,58,237,0.06)'; }}
           >
             {soloLoading ? '创建演示房间中...' : '⚡ Solo 演示 — 一人即可体验全流程'}
           </button>
-          <p className="text-gray-700 text-[10px] text-center -mt-2">
+          <p className="text-[#c4bcb4] text-[10px] text-center -mt-2">
             自动创建房间，进入后点「一键填充」即可看到 6 角色意图 + AI 合成效果
           </p>
         </div>
 
-        <p className="text-center text-gray-700 text-xs mt-4">
+        <p className="text-center text-[#c4bcb4] text-xs mt-4">
           Deeplumen Hackathon 2025 · 4/30 演示
         </p>
       </div>

@@ -136,7 +136,6 @@ export default function ResultPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roomId: id }),
     });
-    // Store round context so the room page can show "Round N+1" and separate old intents.
     localStorage.setItem(`after_round:${id}`, String(latestRound));
     router.push(`/room/${id}`);
   };
@@ -167,8 +166,6 @@ export default function ResultPage() {
     });
   }, [id]);
 
-  // subscribe to new synthesis results (when re-synthesis completes)
-  // also watch room status so spinner can detect synthesize timeout → collecting rollback
   useEffect(() => {
     const channel = supabase
       .channel(`synthesis:${id}`)
@@ -211,7 +208,6 @@ export default function ResultPage() {
     return () => { supabase.removeChannel(channel); };
   }, [id]);
 
-  // Tick elapsed seconds while synthesis is running so the spinner shows live progress.
   useEffect(() => {
     if (roomStatus !== 'synthesizing') return;
     const id = setInterval(() => {
@@ -222,7 +218,6 @@ export default function ResultPage() {
     return () => clearInterval(id);
   }, [roomStatus]);
 
-  // Build roleId → intent preview map (hover tooltips) and section → intents map (diff expand).
   useEffect(() => {
     supabase
       .from('intents')
@@ -249,8 +244,6 @@ export default function ResultPage() {
       });
   }, [id]);
 
-  // Fetch protocol-level recommended actions from the workspace snapshot.
-  // Silently no-ops if .deepwork/ doesn't exist (Vercel / first run).
   useEffect(() => {
     if (!id) return;
     fetch(`/api/workspace?roomId=${encodeURIComponent(id)}`)
@@ -264,10 +257,10 @@ export default function ResultPage() {
 
   if (loading) {
     return (
-      <div className="h-screen bg-[#0a0a0a] flex items-center justify-center">
+      <div className="h-screen bg-[#faf7f2] flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-500 text-sm">加载中...</p>
+          <div className="w-8 h-8 border-2 border-black/[0.06] border-t-black/30 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-[#a8a29e] text-sm">加载中...</p>
         </div>
       </div>
     );
@@ -275,34 +268,32 @@ export default function ResultPage() {
 
   if (!activeResult) {
     const isSynthesizing = roomStatus === 'synthesizing';
-    // Synthesis failed when room reverts to collecting without producing a result
     const isSynthesisFailed = roomStatus === 'collecting' && !isSynthesizing;
     return (
-      <div className="h-screen bg-[#0a0a0a] flex items-center justify-center">
+      <div className="h-screen bg-[#faf7f2] flex items-center justify-center">
         <div className="text-center max-w-xs mx-auto px-6">
           {isSynthesizing ? (
             <>
               <div className="w-14 h-14 mx-auto mb-7 relative flex items-center justify-center">
                 <div className="absolute inset-0 rounded-full border border-purple-500/25 animate-ping" />
                 <div className="absolute inset-0 rounded-full border border-purple-500/10 scale-110 animate-ping [animation-delay:0.3s]" />
-                <div className="w-14 h-14 rounded-full border-2 border-white/8 border-t-purple-400/80 animate-spin" />
+                <div className="w-14 h-14 rounded-full border-2 border-black/[0.06] border-t-purple-500/70 animate-spin" />
               </div>
-              <p className="text-white/80 text-sm font-medium mb-1">合成进行中</p>
-              <p className="text-purple-400/70 text-[11px] mb-5">
+              <p className="text-[#1c1917] text-sm font-medium mb-1">合成进行中</p>
+              <p className="text-purple-600/70 text-[11px] mb-5">
                 {elapsedSec < 15 && '分析角色意图分布...'}
                 {elapsedSec >= 15 && elapsedSec < 35 && '整合多角色视角...'}
                 {elapsedSec >= 35 && elapsedSec < 60 && '生成 HTML 结构与样式...'}
                 {elapsedSec >= 60 && elapsedSec < 80 && '归因标注与冲突检测...'}
                 {elapsedSec >= 80 && '即将完成...'}
               </p>
-              {/* Progress bar — fills over 90s */}
-              <div className="w-full h-0.5 bg-white/5 rounded-full mb-5 overflow-hidden">
+              <div className="w-full h-0.5 bg-black/[0.05] rounded-full mb-5 overflow-hidden">
                 <div
-                  className="h-full bg-purple-500/60 rounded-full transition-all duration-1000"
+                  className="h-full bg-purple-500/50 rounded-full transition-all duration-1000"
                   style={{ width: `${Math.min((elapsedSec / 90) * 100, 98)}%` }}
                 />
               </div>
-              <p className="text-gray-700 text-[11px] font-mono">
+              <p className="text-[#c4bcb4] text-[11px] font-mono">
                 {elapsedSec > 0 ? `已用时 ${elapsedSec}s · 预计 30–90s` : '等待结果中...'}
               </p>
             </>
@@ -310,7 +301,7 @@ export default function ResultPage() {
             <>
               <div
                 className="w-14 h-14 mx-auto mb-7 rounded-2xl flex items-center justify-center"
-                style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}
+                style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)' }}
               >
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(239,68,68,0.6)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="10"/>
@@ -318,8 +309,8 @@ export default function ResultPage() {
                   <line x1="12" y1="16" x2="12.01" y2="16"/>
                 </svg>
               </div>
-              <p className="text-red-400/80 text-sm font-medium mb-2">合成失败</p>
-              <p className="text-gray-600 text-xs leading-relaxed mb-7">
+              <p className="text-red-500/80 text-sm font-medium mb-2">合成失败</p>
+              <p className="text-[#78716c] text-xs leading-relaxed mb-7">
                 Claude 合成超时或遇到错误，房间已重置为收集状态。<br />
                 可返回房间重新触发合成。
               </p>
@@ -327,18 +318,18 @@ export default function ResultPage() {
                 <button
                   onClick={() => router.push(`/room/${id}`)}
                   className="w-full py-2.5 rounded-xl text-sm font-medium transition-all"
-                  style={{ backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: 'rgba(255,120,120,0.85)' }}
-                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.15)'; }}
-                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.1)'; }}
+                  style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'rgba(220,38,38,0.85)' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.13)'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.08)'; }}
                 >
                   ← 返回房间重新合成
                 </button>
                 <button
                   onClick={() => window.location.reload()}
                   className="w-full py-2 rounded-xl text-xs transition-colors"
-                  style={{ color: 'rgba(255,255,255,0.2)', border: '1px solid transparent' }}
-                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.4)'; }}
-                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.2)'; }}
+                  style={{ color: '#a8a29e', border: '1px solid transparent' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = '#78716c'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = '#a8a29e'; }}
                 >
                   刷新页面
                 </button>
@@ -348,15 +339,15 @@ export default function ResultPage() {
             <>
               <div
                 className="w-14 h-14 mx-auto mb-7 rounded-2xl flex items-center justify-center"
-                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+                style={{ background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.08)' }}
               >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 3L3 8.5V15.5L12 21L21 15.5V8.5L12 3Z"/>
                   <path d="M12 12L3 8.5M12 12V21M12 12L21 8.5"/>
                 </svg>
               </div>
-              <p className="text-white/70 text-sm font-medium mb-2">尚无合成结果</p>
-              <p className="text-gray-600 text-xs leading-relaxed mb-7">
+              <p className="text-[#1c1917]/70 text-sm font-medium mb-2">尚无合成结果</p>
+              <p className="text-[#78716c] text-xs leading-relaxed mb-7">
                 各角色提交意图后，房主可在房间页面点击「开始合成」，<br />
                 Claude 将整合所有意图生成产品落地页。
               </p>
@@ -364,18 +355,18 @@ export default function ResultPage() {
                 <button
                   onClick={() => router.push(`/room/${id}`)}
                   className="w-full py-2.5 rounded-xl text-sm font-medium transition-all"
-                  style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.65)' }}
-                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.1)'; }}
-                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.07)'; }}
+                  style={{ backgroundColor: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', color: '#57534e' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(0,0,0,0.07)'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(0,0,0,0.04)'; }}
                 >
                   ← 返回房间采集意图
                 </button>
                 <button
                   onClick={() => window.location.reload()}
                   className="w-full py-2 rounded-xl text-xs transition-colors"
-                  style={{ color: 'rgba(255,255,255,0.2)', border: '1px solid transparent' }}
-                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.4)'; }}
-                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.2)'; }}
+                  style={{ color: '#a8a29e', border: '1px solid transparent' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = '#78716c'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = '#a8a29e'; }}
                 >
                   刷新页面
                 </button>
@@ -389,7 +380,6 @@ export default function ResultPage() {
 
   const latestRound = allResults[allResults.length - 1]?.round ?? 1;
 
-  // Compute attribution diffs between consecutive rounds (pure client-side, no extra queries).
   const attributionDiffs = new Map<number, AttributionChange[]>();
   allResults.forEach((r, i) => {
     if (i === 0) return;
@@ -399,29 +389,28 @@ export default function ResultPage() {
     }
   });
 
-  // Compare mode: show previous round side-by-side with active round.
   const activeIndex = allResults.findIndex(r => r.round === activeRound);
   const compareResult = compareMode && activeIndex > 0 ? allResults[activeIndex - 1] : null;
 
   return (
-    <div className="h-screen bg-[#0a0a0a] flex flex-col">
+    <div className="h-screen bg-[#faf7f2] flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-white/10 flex-shrink-0">
+      <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-black/[0.07] flex-shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={handleContinue}
             disabled={resetting}
-            className="text-gray-500 hover:text-white transition-colors text-sm disabled:opacity-50"
+            className="text-[#78716c] hover:text-[#1c1917] transition-colors text-sm disabled:opacity-50"
           >
             {resetting ? '重置中...' : `← 继续迭代 · Round ${latestRound + 1}`}
           </button>
-          <span className="text-gray-700">·</span>
-          <span className="text-sm text-gray-400">
+          <span className="text-[#d6d3d1]">·</span>
+          <span className="text-sm text-[#78716c]">
             {compareMode && compareResult
               ? `对比 · R${compareResult.round} → R${activeResult.round}`
               : `合成结果 · Round ${activeResult.round}`}
             {!compareMode && activeResult.round === latestRound && allResults.length > 1 && (
-              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/20">最新</span>
+              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 border border-emerald-500/20">最新</span>
             )}
           </span>
         </div>
@@ -438,8 +427,8 @@ export default function ResultPage() {
               className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
               style={
                 compareMode
-                  ? { borderColor: 'rgba(59,130,246,0.4)', color: '#60a5fa', backgroundColor: 'rgba(59,130,246,0.08)' }
-                  : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgb(75,85,99)', backgroundColor: 'transparent' }
+                  ? { borderColor: 'rgba(59,130,246,0.35)', color: '#2563eb', backgroundColor: 'rgba(59,130,246,0.06)' }
+                  : { borderColor: 'rgba(0,0,0,0.08)', color: '#78716c', backgroundColor: 'transparent' }
               }
             >
               {compareMode ? '对比模式 ✓' : '版本对比'}
@@ -450,15 +439,15 @@ export default function ResultPage() {
             className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
             style={
               attributionMode === 'always'
-                ? { borderColor: 'rgba(168,85,247,0.4)', color: '#a855f7', backgroundColor: 'rgba(168,85,247,0.08)' }
-                : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgb(75,85,99)', backgroundColor: 'transparent' }
+                ? { borderColor: 'rgba(168,85,247,0.35)', color: '#7c3aed', backgroundColor: 'rgba(168,85,247,0.06)' }
+                : { borderColor: 'rgba(0,0,0,0.08)', color: '#78716c', backgroundColor: 'transparent' }
             }
           >
             {attributionMode === 'always' ? '归因常亮 ✓' : '归因: 悬停'}
           </button>
           <button
             onClick={() => downloadHtml(activeResult.html_content, activeResult.round, id)}
-            className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-colors"
+            className="text-xs px-3 py-1.5 rounded-lg border border-black/[0.08] text-[#78716c] hover:text-[#1c1917] hover:border-black/[0.15] transition-colors"
           >
             下载 HTML ↓
           </button>
@@ -469,10 +458,10 @@ export default function ResultPage() {
         {/* HTML preview — single or split-compare */}
         <div className="flex-1 flex overflow-hidden">
           {compareResult && (
-            <div className="flex-1 relative border-r border-white/10 overflow-hidden">
+            <div className="flex-1 relative border-r border-black/[0.07] overflow-hidden">
               <div
                 className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[10px] font-mono px-2.5 py-0.5 rounded-full pointer-events-none select-none"
-                style={{ background: 'rgba(0,0,0,0.78)', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}
+                style={{ background: 'rgba(255,255,255,0.92)', color: '#a8a29e', border: '1px solid rgba(0,0,0,0.08)' }}
               >
                 R{compareResult.round}
               </div>
@@ -489,7 +478,7 @@ export default function ResultPage() {
             {compareResult && (
               <div
                 className="absolute top-3 left-1/2 -translate-x-1/2 z-10 text-[10px] font-mono px-2.5 py-0.5 rounded-full pointer-events-none select-none"
-                style={{ background: 'rgba(0,0,0,0.78)', color: 'rgba(52,211,153,0.85)', border: '1px solid rgba(52,211,153,0.18)' }}
+                style={{ background: 'rgba(255,255,255,0.92)', color: 'rgba(5,150,105,0.85)', border: '1px solid rgba(5,150,105,0.2)' }}
               >
                 R{activeResult.round} ✦
               </div>
@@ -505,11 +494,11 @@ export default function ResultPage() {
         </div>
 
         {/* Right sidebar */}
-        <div className="w-56 border-l border-white/10 overflow-y-auto flex-shrink-0 flex flex-col">
+        <div className="w-56 bg-[#f5f0e8] border-l border-black/[0.07] overflow-y-auto flex-shrink-0 flex flex-col">
           {/* Round history */}
           {allResults.length > 1 && (
-            <div className="p-4 border-b border-white/10">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">迭代历史</p>
+            <div className="p-4 border-b border-black/[0.06]">
+              <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">迭代历史</p>
               <div className="space-y-1.5">
                 {allResults.map(r => {
                   const diff = attributionDiffs.get(r.round);
@@ -520,30 +509,30 @@ export default function ResultPage() {
                       className="w-full flex flex-col rounded-lg px-3 py-2 text-left transition-colors"
                       style={
                         activeRound === r.round
-                          ? { backgroundColor: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }
+                          ? { backgroundColor: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)' }
                           : compareResult && r.round === compareResult.round
-                            ? { backgroundColor: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }
+                            ? { backgroundColor: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.18)' }
                             : { border: '1px solid transparent' }
                       }
                     >
                       <div className="flex items-center gap-1.5 w-full">
-                        <span className="text-xs font-mono text-gray-400">R{r.round}</span>
+                        <span className="text-xs font-mono text-[#78716c]">R{r.round}</span>
                         {r.attribution_map && Object.keys(r.attribution_map).length > 0 && (
-                          <span className="text-[9px] font-mono text-gray-700">{Object.keys(r.attribution_map).length}板</span>
+                          <span className="text-[9px] font-mono text-[#c4bcb4]">{Object.keys(r.attribution_map).length}板</span>
                         )}
                         {compareResult && r.round === compareResult.round && (
-                          <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400/60 font-medium">base</span>
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-600/70 font-medium">base</span>
                         )}
                         {diff && diff.length > 0 && (
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400/80 font-medium">
+                          <span className="text-[10px] px-1 py-0.5 rounded bg-amber-500/12 text-amber-700/80 font-medium">
                             {diff.length} 变
                           </span>
                         )}
-                        <span className="text-xs text-gray-600 flex-1 text-right">
+                        <span className="text-xs text-[#c4bcb4] flex-1 text-right">
                           {new Date(r.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                         {r.round === latestRound && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
                         )}
                       </div>
                     </button>
@@ -553,10 +542,10 @@ export default function ResultPage() {
             </div>
           )}
 
-          {/* Recommended next actions — sourced from protocol snapshot */}
+          {/* Recommended next actions */}
           {recommendedActions.length > 0 && (
-            <div className="p-4 border-b border-white/10">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">下一步行动</p>
+            <div className="p-4 border-b border-black/[0.06]">
+              <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">下一步行动</p>
               <div className="space-y-2">
                 {recommendedActions.map(action => (
                   <div
@@ -564,24 +553,24 @@ export default function ResultPage() {
                     className="rounded-xl border p-2.5"
                     style={
                       action.priority === 'p0'
-                        ? { borderColor: 'rgba(239,68,68,0.25)', backgroundColor: 'rgba(239,68,68,0.05)' }
-                        : { borderColor: 'rgba(245,158,11,0.25)', backgroundColor: 'rgba(245,158,11,0.05)' }
+                        ? { borderColor: 'rgba(239,68,68,0.2)', backgroundColor: 'rgba(239,68,68,0.04)' }
+                        : { borderColor: 'rgba(245,158,11,0.2)', backgroundColor: 'rgba(245,158,11,0.04)' }
                     }
                   >
                     <span
                       className="inline-block text-[9px] font-mono font-bold px-1 py-0.5 rounded mb-1.5"
                       style={{
-                        color: action.priority === 'p0' ? '#f87171' : '#fbbf24',
-                        backgroundColor: action.priority === 'p0' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
+                        color: action.priority === 'p0' ? '#dc2626' : '#d97706',
+                        backgroundColor: action.priority === 'p0' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)',
                       }}
                     >
                       {action.priority.toUpperCase()}
                     </span>
-                    <p className="text-[11px] text-gray-400 leading-snug">{action.summary}</p>
+                    <p className="text-[11px] text-[#57534e] leading-snug">{action.summary}</p>
                     {action.affectedSections && action.affectedSections.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1.5">
                         {action.affectedSections.map(s => (
-                          <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-600 border border-white/5">{s}</span>
+                          <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/[0.04] text-[#a8a29e] border border-black/[0.06]">{s}</span>
                         ))}
                       </div>
                     )}
@@ -593,7 +582,7 @@ export default function ResultPage() {
 
           {/* Attribution map */}
           <div className="p-4 flex-1">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">归因摘要</p>
+            <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-4">归因摘要</p>
 
             {activeResult.attribution_map && Object.entries(activeResult.attribution_map).map(([section, roleId]) => {
               const r = ROLES[roleId as RoleId];
@@ -604,10 +593,10 @@ export default function ResultPage() {
                   <div className="w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0" style={{ backgroundColor: r.color }} />
                   <div>
                     <span className="text-xs font-medium" style={{ color: r.color }}>{r.label}</span>
-                    <p className="text-xs text-gray-600 leading-snug">
+                    <p className="text-xs text-[#78716c] leading-snug">
                       {section}
                       {intentCount > 0 && (
-                        <span className="ml-1.5 text-[9px] text-gray-700 font-mono">{intentCount} 条</span>
+                        <span className="ml-1.5 text-[9px] text-[#c4bcb4] font-mono">{intentCount} 条</span>
                       )}
                     </p>
                   </div>
@@ -615,12 +604,12 @@ export default function ResultPage() {
               );
             })}
 
-            {/* Attribution diff: show what changed vs the previous round */}
+            {/* Attribution diff */}
             {activeResult.round > 1 && attributionDiffs.has(activeResult.round) && (
-              <div className="mt-5 pt-4 border-t border-white/10">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">本轮变化</p>
+              <div className="mt-5 pt-4 border-t border-black/[0.06]">
+                <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">本轮变化</p>
                 {attributionDiffs.get(activeResult.round)!.length === 0 ? (
-                  <p className="text-xs text-gray-600">归因无变化</p>
+                  <p className="text-xs text-[#c4bcb4]">归因无变化</p>
                 ) : (
                   attributionDiffs.get(activeResult.round)!.map(d => {
                     const fromRole = d.from ? ROLES[d.from as RoleId] : null;
@@ -642,9 +631,9 @@ export default function ResultPage() {
                           }}
                         >
                           <div className="flex items-center justify-between mb-1">
-                            <p className="text-[10px] text-gray-600 leading-snug">{d.section}</p>
+                            <p className="text-[10px] text-[#78716c] leading-snug">{d.section}</p>
                             {hasIntents && (
-                              <span className="text-[9px] text-gray-700 group-hover:text-gray-500 transition-colors">
+                              <span className="text-[9px] text-[#c4bcb4] group-hover:text-[#78716c] transition-colors">
                                 {isExpanded ? '▲' : '▼'}
                               </span>
                             )}
@@ -653,22 +642,22 @@ export default function ResultPage() {
                             {fromRole ? (
                               <span className="text-[10px] font-medium" style={{ color: fromRole.color }}>{fromRole.label}</span>
                             ) : (
-                              <span className="text-[10px] text-gray-700">新增</span>
+                              <span className="text-[10px] text-[#c4bcb4]">新增</span>
                             )}
-                            <span className="text-gray-700 text-[10px]">→</span>
+                            <span className="text-[#c4bcb4] text-[10px]">→</span>
                             <span className="text-[10px] font-semibold" style={{ color: toRole.color }}>{toRole.label}</span>
                           </div>
                         </button>
                         {isExpanded && hasIntents && (
-                          <div className="mt-2 pl-2 border-l border-white/8 space-y-1.5">
+                          <div className="mt-2 pl-2 border-l border-black/[0.06] space-y-1.5">
                             {sectionIntents[d.section].map((intent, idx) => {
                               const r = ROLES[intent.role as RoleId];
                               return (
                                 <div key={idx}>
-                                  <span className="text-[9px] font-semibold" style={{ color: r?.color ?? 'rgba(255,255,255,0.3)' }}>
+                                  <span className="text-[9px] font-semibold" style={{ color: r?.color ?? '#a8a29e' }}>
                                     {r?.label ?? intent.role}
                                   </span>
-                                  <p className="text-[9px] text-gray-600 leading-snug mt-0.5">
+                                  <p className="text-[9px] text-[#78716c] leading-snug mt-0.5">
                                     {intent.content.length > 65 ? intent.content.slice(0, 65) + '…' : intent.content}
                                   </p>
                                 </div>
@@ -684,22 +673,22 @@ export default function ResultPage() {
             )}
 
             {activeResult.conflicts_resolved && activeResult.conflicts_resolved.length > 0 && (
-              <div className="mt-5 pt-4 border-t border-white/10">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">冲突解决</p>
+              <div className="mt-5 pt-4 border-t border-black/[0.06]">
+                <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">冲突解决</p>
                 {activeResult.conflicts_resolved.map((c, i) => (
-                  <p key={i} className="text-xs text-gray-600 mb-2 leading-snug">{c}</p>
+                  <p key={i} className="text-xs text-[#78716c] mb-2 leading-snug">{c}</p>
                 ))}
               </div>
             )}
 
             {/* Role color legend */}
-            <div className="mt-5 pt-4 border-t border-white/10">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">角色图例</p>
+            <div className="mt-5 pt-4 border-t border-black/[0.06]">
+              <p className="text-xs text-[#a8a29e] uppercase tracking-wider mb-3">角色图例</p>
               <div className="space-y-1.5">
                 {Object.entries(ROLES).map(([roleId, roleInfo]) => (
                   <div key={roleId} className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: roleInfo.color }} />
-                    <span className="text-xs text-gray-500">{roleInfo.label}</span>
+                    <span className="text-xs text-[#78716c]">{roleInfo.label}</span>
                   </div>
                 ))}
               </div>
