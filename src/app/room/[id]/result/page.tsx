@@ -511,12 +511,18 @@ export default function ResultPage() {
             {activeResult.attribution_map && Object.entries(activeResult.attribution_map).map(([section, roleId]) => {
               const r = ROLES[roleId as RoleId];
               if (!r) return null;
+              const intentCount = sectionIntents[section]?.length ?? 0;
               return (
                 <div key={section} className="mb-3 flex items-start gap-2">
                   <div className="w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0" style={{ backgroundColor: r.color }} />
                   <div>
                     <span className="text-xs font-medium" style={{ color: r.color }}>{r.label}</span>
-                    <p className="text-xs text-gray-600 leading-snug">{section}</p>
+                    <p className="text-xs text-gray-600 leading-snug">
+                      {section}
+                      {intentCount > 0 && (
+                        <span className="ml-1.5 text-[9px] text-gray-700 font-mono">{intentCount} 条</span>
+                      )}
+                    </p>
                   </div>
                 </div>
               );
