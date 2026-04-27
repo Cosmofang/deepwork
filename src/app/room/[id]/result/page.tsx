@@ -163,6 +163,7 @@ export default function ResultPage() {
   }, [id]);
 
   // subscribe to new synthesis results (when re-synthesis completes)
+  // also watch room status so spinner can detect synthesize timeout → collecting rollback
   useEffect(() => {
     const channel = supabase
       .channel(`synthesis:${id}`)
@@ -183,6 +184,15 @@ export default function ResultPage() {
           return next;
         });
         setActiveRound((data as SynthesisResult).round);
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'rooms',
+        filter: `id=eq.${id}`,
+      }, (payload) => {
+        const newStatus = (payload.new as { status?: string }).status;
+        if (newStatus) setRoomStatus(newStatus);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -241,6 +251,8 @@ export default function ResultPage() {
 
   if (!activeResult) {
     const isSynthesizing = roomStatus === 'synthesizing';
+    // Synthesis failed when room reverts to collecting without producing a result
+    const isSynthesisFailed = roomStatus === 'collecting' && !isSynthesizing;
     return (
       <div className="h-screen bg-[#0a0a0a] flex items-center justify-center">
         <div className="text-center max-w-xs mx-auto px-6">
@@ -256,6 +268,44 @@ export default function ResultPage() {
                 Claude 正在整合各角色意图，生成产品落地页 HTML。<br />完成后将自动显示结果。
               </p>
               <p className="text-gray-700 text-[11px] font-mono">等待结果中...</p>
+            </>
+          ) : isSynthesisFailed ? (
+            <>
+              <div
+                className="w-14 h-14 mx-auto mb-7 rounded-2xl flex items-center justify-center"
+                style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(239,68,68,0.6)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+              </div>
+              <p className="text-red-400/80 text-sm font-medium mb-2">合成失败</p>
+              <p className="text-gray-600 text-xs leading-relaxed mb-7">
+                Claude 合成超时或遇到错误，房间已重置为收集状态。<br />
+                可返回房间重新触发合成。
+              </p>
+              <div className="space-y-2">
+                <button
+                  onClick={() => router.push(`/room/${id}`)}
+                  className="w-full py-2.5 rounded-xl text-sm font-medium transition-all"
+                  style={{ backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: 'rgba(255,120,120,0.85)' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.15)'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.1)'; }}
+                >
+                  ← 返回房间重新合成
+                </button>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="w-full py-2 rounded-xl text-xs transition-colors"
+                  style={{ color: 'rgba(255,255,255,0.2)', border: '1px solid transparent' }}
+                  onMouseEnter={e => { (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.4)'; }}
+                  onMouseLeave={e => { (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.2)'; }}
+                >
+                  刷新页面
+                </button>
+              </div>
             </>
           ) : (
             <>
