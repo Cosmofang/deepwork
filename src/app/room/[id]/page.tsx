@@ -394,6 +394,14 @@ export default function RoomPage() {
     intents.some(i => normalizeSectionName(i.section) === s)
   );
 
+  // Per-role intent count — derived from existing intents state, zero extra queries.
+  // Updates automatically via the existing intents realtime subscription.
+  const intentCountByRole: Record<string, number> = {};
+  for (const intent of intents) {
+    const role = intent.participant?.role;
+    if (role) intentCountByRole[role] = (intentCountByRole[role] ?? 0) + 1;
+  }
+
   return (
     <div className="h-screen bg-[#0a0a0a] flex flex-col overflow-hidden">
 
@@ -824,6 +832,7 @@ export default function RoomPage() {
               {ROLE_IDS.map(roleId => {
                 const r = ROLES[roleId];
                 const joined = participants.some(p => p.role === roleId);
+                const count = intentCountByRole[roleId] ?? 0;
                 return (
                   <div
                     key={roleId}
@@ -839,6 +848,14 @@ export default function RoomPage() {
                       style={{ backgroundColor: joined ? r.color : '#374151' }}
                     />
                     {r.label}
+                    {count > 0 && (
+                      <span
+                        className="text-[9px] font-mono leading-none"
+                        style={{ opacity: 0.55 }}
+                      >
+                        {count}
+                      </span>
+                    )}
                   </div>
                 );
               })}
