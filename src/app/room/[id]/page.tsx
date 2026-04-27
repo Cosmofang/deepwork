@@ -308,30 +308,19 @@ export default function RoomPage() {
     setPopulating(false);
   };
 
-  const triggerSynthesis = async () => {
+  const triggerSynthesis = () => {
     if (intents.length === 0 || synthesizing || roomStatus === 'synthesizing') return;
     setSynthesizing(true);
     setRequestError('');
-
-    try {
-      const res = await fetch('/api/synthesize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId: id }),
-      });
-      if (res.ok) {
-        localStorage.removeItem(`after_round:${id}`);
-        router.push(`/room/${id}/result`);
-      }
-      else {
-        const errorBody = await res.json().catch(() => null);
-        setRequestError(errorBody?.error || '合成失败，请重试');
-        setSynthesizing(false);
-      }
-    } catch {
-      setRequestError('合成失败，请重试');
-      setSynthesizing(false);
-    }
+    localStorage.removeItem(`after_round:${id}`);
+    // Fire-and-forget: the server runs to completion even after the browser navigates away.
+    // The result page subscribes to Supabase realtime and will auto-display results when done.
+    fetch('/api/synthesize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId: id }),
+    }).catch(() => null);
+    router.push(`/room/${id}/result`);
   };
 
   // Drive the per-second elapsed counter shown in the synthesis overlay.
