@@ -187,14 +187,30 @@ async function cmdConnect(positional: string[], flags: Record<string, string>) {
 
   print(`${C.purple}DeepLoop${C.reset} 正在连接项目 ${C.bold}${code}${C.reset} (${baseUrl})…`);
 
-  const data = await api<{
+  // Register the agent identity (mode='agent' only inserts an employee
+  // participant — no panelParticipantId is returned).
+  const agentJoin = await api<{
     projectId: string;
     agentId: string;
-    panelParticipantId: string;
   }>(baseUrl, '/api/projects/join', {
     method: 'POST',
     body: { projectCode: code, name: agentName, mode: 'agent', roleDescription: 'CLI Agent' },
   });
+
+  // Also register a panel participant so `deeploop push` can post requirements
+  // as a panel user (panel participants are the canonical "requirement
+  // posters"). Best-effort: if it fails, push will fall back to using the
+  // agentId as the participant.
+  let panelParticipantId: string | undefined;
+  try {
+    const panelJoin = await api<{ panelParticipantId: string }>(baseUrl, '/api/projects/join', {
+      method: 'POST',
+      body: { projectCode: code, name: agentName, mode: 'panel' },
+    });
+    panelParticipantId = panelJoin.panelParticipantId;
+  } catch {
+    // Panel join is optional — push will use agentId as fallback
+  }
 
   // Best-effort fetch of Supabase config so `deeploop work` can use Realtime push
   // instead of HTTP polling. If the panel doesn't expose the endpoint or the
@@ -214,8 +230,8 @@ async function cmdConnect(positional: string[], flags: Record<string, string>) {
   cfg.projects[code] = {
     url: baseUrl,
     projectCode: code,
-    agentId: data.agentId,
-    panelParticipantId: data.panelParticipantId,
+    agentId: agentJoin.agentId,
+    panelParticipantId: panelParticipantId ?? '',
     agentName,
     supabaseUrl,
     supabaseAnonKey,
@@ -223,8 +239,8 @@ async function cmdConnect(positional: string[], flags: Record<string, string>) {
   saveConfig(cfg);
 
   ok(`已连接项目 ${C.bold}${code}${C.reset} · agent: ${C.purple}${agentName}${C.reset}`);
-  info(`agentId:            ${data.agentId}`);
-  info(`panelParticipantId: ${data.panelParticipantId}`);
+  info(`agentId:            ${agentJoin.agentId}`);
+  if (panelParticipantId) info(`panelParticipantId: ${panelParticipantId}`);
   info(`config:             ${CONFIG_PATH}`);
   print('');
 
@@ -481,12 +497,20 @@ async function cmdPush(positional: string[], flags: Record<string, string>) {
     ? flags['priority']
     : 'normal';
 
+  // Prefer the panel participant id (set by recent connect), fall back to the
+  // agent id for older configs. The /api/requirements POST handler accepts any
+  // project member as the poster — it just verifies room membership.
+  const participantId = proj.panelParticipantId || proj.agentId;
+  if (!participantId) {
+    die('当前 config 没有任何 participantId。请运行 deeploop connect <PROJECT_CODE> 重新接入。');
+  }
+
   const data = await api<{ requirement: { id: string } }>(proj.url, '/api/requirements', {
     method: 'POST',
     body: {
       projectId: proj.projectCode,
       content,
-      participantId: proj.panelParticipantId,
+      participantId,
       priority,
     },
   });
