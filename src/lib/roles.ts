@@ -88,7 +88,7 @@ export const ROLES: Record<RoleId, {
     ],
     demoIntents2: [
       { section: 'FAQ', content: '「如何快速上手」的答案要更具体：步骤一：生成房间码（5秒）→ 步骤二：6人各选角色提交意图（5分钟）→ 步骤三：一键合成，AI 30秒内交付落地页（30秒），每步配一个图标' },
-      { section: '整体', content: '整体页面加入无障碍设计：所有图标按钮加 aria-label，颜色对比度符合 WCAG AA 标准，footer 加入联系邮箱 hello@deepwork.ai' },
+      { section: '整体', content: '整体页面加入无障碍设计：所有图标按钮加 aria-label，颜色对比度符合 WCAG AA 标准，footer 加入联系邮箱 hello@deeploop.ai' },
     ],
   },
 };

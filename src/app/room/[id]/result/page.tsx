@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase';
 import { ROLES } from '@/lib/roles';
 import { RoleId, SynthesisResult } from '@/types';
-import type { DeepWorkRecommendedAction } from '@/types/deepwork-protocol';
+import type { DeepLoopRecommendedAction } from '@/types/deeploop-protocol';
 
 const ROLE_DATA = Object.fromEntries(
   Object.entries(ROLES).map(([k, v]) => [k, { label: v.label, color: v.color }])
@@ -125,7 +125,7 @@ function downloadHtml(html: string, round: number, roomId: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `deepwork-${roomId}-round${round}.html`;
+  a.download = `deeploop-${roomId}-round${round}.html`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -138,7 +138,7 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true);
   const [resetting, setResetting] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [recommendedActions, setRecommendedActions] = useState<DeepWorkRecommendedAction[]>([]);
+  const [recommendedActions, setRecommendedActions] = useState<DeepLoopRecommendedAction[]>([]);
   const [failureSummary, setFailureSummary] = useState<string | null>(null);
   const [attributionMode, setAttributionMode] = useState<'hover' | 'always'>('always');
   const [roleIntentPreviews, setRoleIntentPreviews] = useState<Partial<Record<string, string>>>({});
@@ -270,7 +270,7 @@ export default function ResultPage() {
   useEffect(() => {
     if (!id) return;
     fetch(`/api/workspace?roomId=${encodeURIComponent(id)}`)
-      .then(r => r.ok ? (r.json() as Promise<{ snapshot?: { recommendedNextActions?: DeepWorkRecommendedAction[] }; recentEvents?: Array<{ type: string; section?: string; summary?: string; recordedAt?: string }> }>) : null)
+      .then(r => r.ok ? (r.json() as Promise<{ snapshot?: { recommendedNextActions?: DeepLoopRecommendedAction[] }; recentEvents?: Array<{ type: string; section?: string; summary?: string; recordedAt?: string }> }>) : null)
       .then(data => {
         const actions = data?.snapshot?.recommendedNextActions ?? [];
         setRecommendedActions(actions.filter(a => a.priority !== 'p2'));

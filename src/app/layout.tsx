@@ -3,7 +3,7 @@ import './globals.css';
 import ThemeToggle from '@/components/ThemeToggle';
 
 export const metadata: Metadata = {
-  title: 'DeepWork — 集体意图，AI 合成',
+  title: 'DeepLoop — 集体意图，AI 合成',
   description: '多人协作的新范式：意图 + 合成',
 };
 

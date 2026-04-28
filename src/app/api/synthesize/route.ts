@@ -423,9 +423,9 @@ ${HTML_SPEC}`;
       {
         type: 'artifact.updated',
         artifactType: 'html',
-        artifactPath: `.deepwork/rooms/${normalizedRoomId}/latest.html`,
+        artifactPath: `.deeploop/rooms/${normalizedRoomId}/latest.html`,
         attributionMap: output.attributionMap,
-        summary: `Round ${round} HTML 产物已写入 .deepwork/rooms/${normalizedRoomId}/latest.html`,
+        summary: `Round ${round} HTML 产物已写入 .deeploop/rooms/${normalizedRoomId}/latest.html`,
       },
       ...unresolved.map((desc, i): RoomStateEvent => ({
         type: 'conflict.detected',

@@ -3,22 +3,22 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { updateGovernanceIndex } from '@/lib/governance-index';
 import {
-  DEEPWORK_SUPPORTED_EVENT_TYPES,
-  DeepWorkArtifactUpdatedEvent,
-  DeepWorkConflictDetectedEvent,
-  DeepWorkDecisionAcceptedEvent,
-  DeepWorkEventType,
-  DeepWorkIntentCreatedEvent,
-  DeepWorkPatchEvent,
-  DeepWorkSemanticEvent,
-} from '@/types/deepwork-protocol';
+  DEEPLOOP_SUPPORTED_EVENT_TYPES,
+  DeepLoopArtifactUpdatedEvent,
+  DeepLoopConflictDetectedEvent,
+  DeepLoopDecisionAcceptedEvent,
+  DeepLoopEventType,
+  DeepLoopIntentCreatedEvent,
+  DeepLoopPatchEvent,
+  DeepLoopSemanticEvent,
+} from '@/types/deeploop-protocol';
 
-const DEEPWORK_ROOT = path.join(process.cwd(), '.deepwork');
-const PROJECT_ID = 'deepwork';
+const DEEPLOOP_ROOT = path.join(process.cwd(), '.deeploop');
+const PROJECT_ID = 'deeploop';
 
 // Only non-destructive event types are accepted from external agents.
 // Synthesis-gated writes (synthesis.started, synthesis.completed) go through /api/synthesize.
-const ALLOWED_EVENT_TYPES: DeepWorkEventType[] = [
+const ALLOWED_EVENT_TYPES: DeepLoopEventType[] = [
   'intent.created',
   'patch.proposed',
   'patch.applied',
@@ -41,8 +41,8 @@ async function updateWorkspaceMetadata(roomId: string, roomDir: string, eventsPa
   const snapshotPath = path.join(roomDir, 'snapshot.json');
   const summaryPath = path.join(roomDir, 'summary.md');
   const latestHtmlPath = path.join(roomDir, 'latest.html');
-  const indexPath = path.join(DEEPWORK_ROOT, 'rooms', 'index.json');
-  const projectKeyPath = path.join(DEEPWORK_ROOT, 'project.json');
+  const indexPath = path.join(DEEPLOOP_ROOT, 'rooms', 'index.json');
+  const projectKeyPath = path.join(DEEPLOOP_ROOT, 'project.json');
 
   const snapshot = await readJsonFile<{
     meta?: object;
@@ -93,14 +93,14 @@ async function updateWorkspaceMetadata(roomId: string, roomDir: string, eventsPa
     ...existingProjectKey,
     protocolVersion: '0.1',
     projectId: PROJECT_ID,
-    projectName: 'DeepWork',
+    projectName: 'DeepLoop',
     stateMode: existingProjectKey.stateMode ?? 'local-room-snapshots',
     currentRoomId: roomId,
     currentSnapshotPath: path.relative(process.cwd(), snapshotPath),
     roomsIndexPath: path.relative(process.cwd(), indexPath),
     eventsPath: path.relative(process.cwd(), eventsPath),
     realtimeChannel: `room:${roomId}`,
-    supportedEventTypes: DEEPWORK_SUPPORTED_EVENT_TYPES,
+    supportedEventTypes: DEEPLOOP_SUPPORTED_EVENT_TYPES,
     outputs: {
       html: path.relative(process.cwd(), latestHtmlPath),
       summary: path.relative(process.cwd(), summaryPath),
@@ -154,7 +154,7 @@ function hasSemanticLinkage(event: {
   return Boolean(event.patchId || event.linkedEventIds?.length || event.linkedIntents?.length || event.affectedSections?.length || event.affectedFiles?.length);
 }
 
-function stableEventId(type: DeepWorkEventType) {
+function stableEventId(type: DeepLoopEventType) {
   const randomSuffix = Math.random().toString(36).slice(2, 8);
   return `${type.replace(/\./g, '-')}-${Date.now().toString(36)}-${randomSuffix}`;
 }
@@ -165,12 +165,12 @@ function normalizeActorId(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function getKnownActorId(eventInput: Partial<DeepWorkSemanticEvent>) {
+function getKnownActorId(eventInput: Partial<DeepLoopSemanticEvent>) {
   return normalizeActorId(eventInput.actorId) || normalizeActorId(eventInput.participantId);
 }
 
-function getOptionalEventId(eventInput: Partial<DeepWorkSemanticEvent>) {
-  const maybeWithId = eventInput as Partial<DeepWorkSemanticEvent> & { id?: unknown };
+function getOptionalEventId(eventInput: Partial<DeepLoopSemanticEvent>) {
+  const maybeWithId = eventInput as Partial<DeepLoopSemanticEvent> & { id?: unknown };
   return typeof maybeWithId.id === 'string' && maybeWithId.id.trim().length > 0
     ? maybeWithId.id.trim()
     : undefined;
@@ -180,18 +180,18 @@ function isErrorResult<T>(value: T | NextResponse): value is NextResponse {
   return value instanceof Response;
 }
 
-function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): DeepWorkSemanticEvent | NextResponse {
+function validateWorkspaceEvent(eventInput: Partial<DeepLoopSemanticEvent>): DeepLoopSemanticEvent | NextResponse {
   if (!eventInput.type) {
     return errorResponse('event.type is required');
   }
 
-  if (!ALLOWED_EVENT_TYPES.includes(eventInput.type as DeepWorkEventType)) {
+  if (!ALLOWED_EVENT_TYPES.includes(eventInput.type as DeepLoopEventType)) {
     return errorResponse(`Event type '${eventInput.type}' is not allowed via this endpoint.`, 400, {
       allowed: ALLOWED_EVENT_TYPES,
     });
   }
 
-  const eventType = eventInput.type as DeepWorkEventType;
+  const eventType = eventInput.type as DeepLoopEventType;
   const summary = assertNonEmptyString(eventInput.summary, 'event.summary');
   if (isErrorResult(summary)) return summary;
 
@@ -208,15 +208,15 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
 
   switch (eventInput.type) {
     case 'intent.created': {
-      const section = assertNonEmptyString((eventInput as Partial<DeepWorkIntentCreatedEvent>).section, 'event.section');
+      const section = assertNonEmptyString((eventInput as Partial<DeepLoopIntentCreatedEvent>).section, 'event.section');
       if (isErrorResult(section)) return section;
-      const content = assertNonEmptyString((eventInput as Partial<DeepWorkIntentCreatedEvent>).content, 'event.content');
+      const content = assertNonEmptyString((eventInput as Partial<DeepLoopIntentCreatedEvent>).content, 'event.content');
       if (isErrorResult(content)) return content;
-      return { ...base, type: eventInput.type, section, content } as DeepWorkIntentCreatedEvent;
+      return { ...base, type: eventInput.type, section, content } as DeepLoopIntentCreatedEvent;
     }
     case 'patch.proposed':
     case 'patch.applied': {
-      const event = eventInput as Partial<DeepWorkPatchEvent>;
+      const event = eventInput as Partial<DeepLoopPatchEvent>;
       const affectedFiles = assertStringArray(event.affectedFiles, 'event.affectedFiles');
       if (isErrorResult(affectedFiles)) return affectedFiles;
       const linkedEventIds = assertStringArray(event.linkedEventIds, 'event.linkedEventIds');
@@ -246,35 +246,35 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
         affectedSections,
         reason,
         patchId,
-      } as DeepWorkPatchEvent;
+      } as DeepLoopPatchEvent;
     }
     case 'artifact.updated': {
-      const event = eventInput as Partial<DeepWorkArtifactUpdatedEvent>;
+      const event = eventInput as Partial<DeepLoopArtifactUpdatedEvent>;
       const artifactType = event.artifactType ?? 'other';
       if (!['html', 'markdown', 'doc', 'code', 'other'].includes(artifactType)) {
         return errorResponse('event.artifactType must be html, markdown, doc, code, or other');
       }
       const artifactPath = assertOptionalString(event.artifactPath, 'event.artifactPath');
       if (isErrorResult(artifactPath)) return artifactPath;
-      return { ...base, type: eventInput.type, artifactType, artifactPath, attributionMap: event.attributionMap } as DeepWorkArtifactUpdatedEvent;
+      return { ...base, type: eventInput.type, artifactType, artifactPath, attributionMap: event.attributionMap } as DeepLoopArtifactUpdatedEvent;
     }
     case 'decision.accepted': {
-      const event = eventInput as Partial<DeepWorkDecisionAcceptedEvent>;
+      const event = eventInput as Partial<DeepLoopDecisionAcceptedEvent>;
       const value = assertNonEmptyString(event.value, 'event.value');
       if (isErrorResult(value)) return value;
       const decisionId = assertOptionalString(event.decisionId, 'event.decisionId');
       if (isErrorResult(decisionId)) return decisionId;
       const title = assertOptionalString(event.title, 'event.title');
       if (isErrorResult(title)) return title;
-      return { ...base, type: eventInput.type, value, title, decisionId } as DeepWorkDecisionAcceptedEvent;
+      return { ...base, type: eventInput.type, value, title, decisionId } as DeepLoopDecisionAcceptedEvent;
     }
     case 'summary.updated': {
       const section = assertOptionalString((eventInput as { section?: unknown }).section, 'event.section');
       if (isErrorResult(section)) return section;
-      return { ...base, type: eventInput.type, section } as DeepWorkSemanticEvent;
+      return { ...base, type: eventInput.type, section } as DeepLoopSemanticEvent;
     }
     case 'conflict.detected': {
-      const event = eventInput as Partial<DeepWorkConflictDetectedEvent>;
+      const event = eventInput as Partial<DeepLoopConflictDetectedEvent>;
       const sections = assertStringArray(event.sections, 'event.sections');
       if (isErrorResult(sections)) return sections;
       const actorIds = assertStringArray(event.actorIds, 'event.actorIds');
@@ -287,7 +287,7 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
         conflictId: conflictId || base.id,
         sections,
         actorIds,
-      } as DeepWorkConflictDetectedEvent;
+      } as DeepLoopConflictDetectedEvent;
     }
     default:
       return errorResponse(`Unsupported event type '${eventInput.type}'`);
@@ -299,10 +299,10 @@ function validateWorkspaceEvent(eventInput: Partial<DeepWorkSemanticEvent>): Dee
 // Designed for external agents (Machine B in dual-machine protocol tests) to record
 // patch.proposed, artifact.updated, decision.accepted, etc.
 //
-// Body: { roomId: string; event: Partial<DeepWorkSemanticEvent> }
-// Returns: { ok: true; event: DeepWorkSemanticEvent }
+// Body: { roomId: string; event: Partial<DeepLoopSemanticEvent> }
+// Returns: { ok: true; event: DeepLoopSemanticEvent }
 export async function POST(req: NextRequest) {
-  let body: { roomId?: string; event?: Partial<DeepWorkSemanticEvent> } & Record<string, unknown>;
+  let body: { roomId?: string; event?: Partial<DeepLoopSemanticEvent> } & Record<string, unknown>;
 
   try {
     body = (await req.json()) as typeof body;
@@ -339,7 +339,7 @@ export async function POST(req: NextRequest) {
   }
 
   const safeId = roomId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const roomDir = path.join(DEEPWORK_ROOT, 'rooms', safeId);
+  const roomDir = path.join(DEEPLOOP_ROOT, 'rooms', safeId);
   const eventsPath = path.join(roomDir, 'events.ndjson');
 
   await fs.mkdir(roomDir, { recursive: true });
@@ -347,7 +347,7 @@ export async function POST(req: NextRequest) {
   const semanticEvent = {
     ...validatedEvent,
     roomId,
-  } as DeepWorkSemanticEvent;
+  } as DeepLoopSemanticEvent;
 
   await fs.appendFile(eventsPath, `${JSON.stringify(semanticEvent)}\n`, 'utf8');
   await updateGovernanceIndex(roomDir, roomId, [semanticEvent]);

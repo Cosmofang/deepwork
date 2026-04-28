@@ -1,21 +1,35 @@
 {
-  "name": "deepwork",
-  "version": "0.1.0",
-  "private": true,
+  "name": "dwcosmo",
+  "version": "0.1.2",
+  "description": "DeepLoop CLI — connect agents to a DeepLoop panel and sync requirements, status, and results",
+  "bin": {
+    "deeploop": "dist/cli.js"
+  },
+  "files": [
+    "dist/cli.js"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "worker": "node --experimental-strip-types --no-warnings src/worker/index.ts",
+    "deeploop": "node --experimental-strip-types --no-warnings src/cli/index.ts",
+    "build:cli": "tsc src/cli/index.ts --target esnext --module esnext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict false --outDir dist && mv dist/index.js dist/cli.js && chmod +x dist/cli.js",
+    "prepublishOnly": "npm run build:cli"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.27.3",
-    "@supabase/supabase-js": "^2.43.1",
-    "next": "^14.2.3",
-    "react": "^18",
-    "react-dom": "^18"
+    "@supabase/supabase-js": "^2.43.1"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.27.3",
+    "next": "^14.2.3",
+    "react": "^18",
+    "react-dom": "^18",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

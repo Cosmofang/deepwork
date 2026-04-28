@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { DeepWorkPatchEvent, DeepWorkSemanticEvent } from '@/types/deepwork-protocol';
+import { DeepLoopPatchEvent, DeepLoopSemanticEvent } from '@/types/deeploop-protocol';
 
 export interface GovernanceConflict {
   id: string;
@@ -16,7 +16,7 @@ export interface GovernanceIndex {
   roomId: string;
   updatedAt: string;
   openConflicts: GovernanceConflict[];
-  openPatches: DeepWorkPatchEvent[];
+  openPatches: DeepLoopPatchEvent[];
 }
 
 function emptyIndex(roomId: string): GovernanceIndex {
@@ -38,11 +38,11 @@ export async function readGovernanceIndex(roomDir: string): Promise<GovernanceIn
   }
 }
 
-function eventId(event: DeepWorkSemanticEvent): string {
+function eventId(event: DeepLoopSemanticEvent): string {
   return ((event as unknown as Record<string, unknown>).id as string) || '';
 }
 
-export function applyEventsToIndex(index: GovernanceIndex, events: DeepWorkSemanticEvent[]): GovernanceIndex {
+export function applyEventsToIndex(index: GovernanceIndex, events: DeepLoopSemanticEvent[]): GovernanceIndex {
   let { openConflicts, openPatches } = index;
 
   for (const event of events) {
@@ -62,7 +62,7 @@ export function applyEventsToIndex(index: GovernanceIndex, events: DeepWorkSeman
         }];
       }
     } else if (event.type === 'patch.proposed') {
-      const patch = event as DeepWorkPatchEvent;
+      const patch = event as DeepLoopPatchEvent;
       const id = eventId(patch);
       const alreadyTracked = openPatches.some(p => eventId(p) === id || (patch.patchId && p.patchId === patch.patchId));
       if (!alreadyTracked) {
@@ -97,7 +97,7 @@ export function applyEventsToIndex(index: GovernanceIndex, events: DeepWorkSeman
 export async function updateGovernanceIndex(
   roomDir: string,
   roomId: string,
-  newEvents: DeepWorkSemanticEvent[]
+  newEvents: DeepLoopSemanticEvent[]
 ): Promise<void> {
   if (newEvents.length === 0) return;
 

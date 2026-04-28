@@ -3,12 +3,52 @@ import Anthropic from '@anthropic-ai/sdk';
 import { spawn } from 'child_process';
 import { createClient, getSupabaseServerConfigStatus } from '@/lib/supabase-server';
 
-export const maxDuration = 130;
+export const maxDuration = 300;
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
   ...(process.env.ANTHROPIC_BASE_URL ? { baseURL: process.env.ANTHROPIC_BASE_URL } : {}),
 });
+
+// Map UI model choice to actual Claude model id. Sonnet stays the default.
+const MODEL_MAP = {
+  haiku:  'claude-haiku-4-5-20251001',
+  sonnet: 'claude-sonnet-4-6',
+  opus:   'claude-opus-4-7',
+} as const;
+type ModelChoice = keyof typeof MODEL_MAP;
+
+// Strip the leading panel markers and return both their values.
+// Markers are written by the panel as 「（模型: xxx）」 and 「（基于 vN）」 in
+// either order; both are removed from the content actually shown to the model.
+function parseRequirementMeta(rawContent: string): {
+  content: string;
+  modelId: string;
+  basedOnVersion: number | null;
+} {
+  let content = rawContent;
+  let modelId: string = MODEL_MAP.sonnet;
+  let basedOnVersion: number | null = null;
+
+  // Up to two iterations — there are at most two markers, in any order.
+  for (let i = 0; i < 2; i++) {
+    const modelMatch = content.match(/^\s*（模型:\s*(haiku|sonnet|opus)）/);
+    if (modelMatch) {
+      modelId = MODEL_MAP[modelMatch[1] as ModelChoice];
+      content = content.slice(modelMatch[0].length);
+      continue;
+    }
+    const baseMatch = content.match(/^\s*（基于\s*v(\d+)）/);
+    if (baseMatch) {
+      basedOnVersion = parseInt(baseMatch[1], 10);
+      content = content.slice(baseMatch[0].length);
+      continue;
+    }
+    break;
+  }
+
+  return { content: content.trimStart(), modelId, basedOnVersion };
+}
 
 const HTML_SPEC = `
 ## HTML 生成规范
@@ -50,11 +90,14 @@ feature-card:hover translateY(-6px)；Hero CTA 按钮呼吸动画 pulse
 
 type GenerateOutput = { html: string; summary: string };
 
+// intents table is requirements, synthesis_results table is submissions
+// attribution_map stores: { agent_id, agent_name, requirement_id, summary, role_description }
+
 export async function POST(req: NextRequest) {
   const body = await req.json() as {
     projectId?: string;
-    requirementId?: string;
-    agentId?: string;
+    requirementId?: string; // = intent.id
+    agentId?: string;       // = participant.id
   };
 
   const projectId = body.projectId?.trim().toUpperCase();
@@ -76,44 +119,114 @@ export async function POST(req: NextRequest) {
 
   const supabase = createClient();
 
-  const { data: requirement } = await supabase
-    .from('requirements')
+  // Fetch requirement (from intents)
+  const { data: intent } = await supabase
+    .from('intents')
     .select('*')
     .eq('id', requirementId)
-    .eq('project_id', projectId)
+    .eq('room_id', projectId)
     .maybeSingle();
 
-  if (!requirement) {
+  if (!intent) {
     return NextResponse.json({ error: 'Requirement not found' }, { status: 404 });
   }
 
-  // Check if this agent already submitted for this requirement
-  const { data: existing } = await supabase
-    .from('submissions')
-    .select('id')
-    .eq('requirement_id', requirementId)
-    .eq('agent_id', agentId)
-    .maybeSingle();
+  // Check duplicate: look in synthesis_results.attribution_map for this agent+requirement
+  const { data: allResults } = await supabase
+    .from('synthesis_results')
+    .select('id, attribution_map')
+    .eq('room_id', projectId);
 
-  if (existing) {
-    return NextResponse.json({ error: 'Already submitted for this requirement', submissionId: existing.id }, { status: 409 });
+  const alreadySubmitted = (allResults ?? []).find((r: Record<string, unknown>) => {
+    const meta = (r.attribution_map ?? {}) as Record<string, string>;
+    return meta.agent_id === agentId && meta.requirement_id === requirementId;
+  });
+
+  if (alreadySubmitted) {
+    return NextResponse.json({ error: 'Already submitted for this requirement', submissionId: alreadySubmitted.id }, { status: 409 });
   }
 
-  // Mark agent as working
-  await supabase.from('agents').update({ status: 'working', last_seen_at: new Date().toISOString() }).eq('id', agentId);
+  // Parse markers up front so we know whether the user pinned a base version
+  // (「（基于 vN）」) and which model to use. The marker is a 1-indexed
+  // ordinal — v1 is the oldest submission, vN is the latest at write time.
+  const { content: cleanContent, modelId, basedOnVersion } = parseRequirementMeta(intent.content as string);
 
-  const prompt = `你是一名顶级的产品设计师和前端工程师。根据以下项目需求，独立生成一个高质量的产品落地页 HTML。
+  // Resolve currentHtml against the marker.
+  //   - With marker: pull all versions sorted ascending, take the (N-1)th.
+  //     If the index is out of range, fall through to "latest" instead of
+  //     erroring — the user's selection might point at a version that's been
+  //     deleted, in which case latest is the safest fallback.
+  //   - Without marker: just take the latest as before.
+  let currentHtml: string | null = null;
+  let basedOnInfo: string | null = null;
+  if (basedOnVersion !== null) {
+    const { data: ascending } = await supabase
+      .from('synthesis_results')
+      .select('id, html_content, created_at')
+      .eq('room_id', projectId)
+      .order('created_at', { ascending: true });
+    const list = (ascending ?? []) as Array<{ id: string; html_content: string; created_at: string }>;
+    const idx = basedOnVersion - 1;
+    if (idx >= 0 && idx < list.length) {
+      currentHtml = list[idx].html_content;
+      basedOnInfo = `v${basedOnVersion}`;
+      console.log(`[generate] using base v${basedOnVersion} (id=${list[idx].id.slice(0, 8)}) for requirement ${requirementId.slice(0, 8)}`);
+    } else {
+      console.warn(`[generate] base marker v${basedOnVersion} out of range (have ${list.length} versions), falling back to latest`);
+    }
+  }
+  if (currentHtml === null) {
+    const { data: latestVersion } = await supabase
+      .from('synthesis_results')
+      .select('html_content')
+      .eq('room_id', projectId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    currentHtml = (latestVersion?.html_content as string) ?? null;
+  }
+
+  // Fetch agent name from participants
+  const { data: participant } = await supabase
+    .from('participants')
+    .select('name')
+    .eq('id', agentId)
+    .maybeSingle();
+
+  const rawName = (participant?.name as string) ?? 'Agent';
+  // name may contain role_description encoded as "Name｜RoleDesc"
+  const nameParts = rawName.split('｜');
+  const agentName = nameParts[0] ?? rawName;
+  const roleDescription = nameParts[1] ?? '';
+
+  // The base-version label tells the model which version it's iterating on,
+  // so the prompt can refer to it explicitly and the model doesn't accidentally
+  // mix up "latest" vs "user-selected base".
+  const baseLabel = basedOnInfo ? `用户指定的基础版本（${basedOnInfo}）` : '当前最新版本';
+  const iterativeSection = currentHtml
+    ? `\n\n## ${baseLabel}（在此基础上迭代修改）\n用户已经明确选择了上面这个版本作为修改起点。请在以下现有 HTML 的基础上进行修改，只改动与新需求相关的部分，保留其他已有内容：\n<current_html>\n${currentHtml}\n</current_html>`
+    : '';
+
+  const prompt = currentHtml
+    ? `你是一名顶级的产品设计师和前端工程师。请在现有页面的基础上迭代改进，完成以下新需求。
+
+## 新需求
+${cleanContent}
+${iterativeSection}
+
+${HTML_SPEC}`
+    : `你是一名顶级的产品设计师和前端工程师。这是项目的第一个版本，请根据需求从零生成一个高质量的产品落地页 HTML。
 
 ## 需求
-${requirement.content}
+${cleanContent}
 
 ${HTML_SPEC}`;
 
-  const timeoutMs = 105_000;
+  const timeoutMs = 540_000; // 9 min safety net
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
-  const useCliMode = !!process.env.ANTHROPIC_BASE_URL;
+  const useCliMode = !!process.env.ANTHROPIC_BASE_URL; // proxy only accepts Claude Code clients (CLI)
   let output: GenerateOutput | null = null;
 
   try {
@@ -137,7 +250,7 @@ ${HTML_SPEC}`;
           return;
         }
 
-        const proc = spawn('claude', ['-p', cliPrompt], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const proc = spawn('claude', ['-p', cliPrompt, '--model', modelId, '--output-format', 'json'], { stdio: ['ignore', 'pipe', 'pipe'] });
         const onAbort = () => proc.kill('SIGTERM');
         controller.signal.addEventListener('abort', onAbort);
 
@@ -161,8 +274,16 @@ ${HTML_SPEC}`;
             reject(new Error(stderr.slice(0, 300) || `claude CLI exit ${code}`));
             return;
           }
-          const match = stdout.match(/<generate_output>\s*([\s\S]*?)\s*<\/generate_output>/);
-          const jsonStr = match ? match[1] : stdout.match(/\{[\s\S]*\}/)?.[0];
+          // --output-format json wraps output in {"result": "...", "type": "result", ...}
+          let text = stdout;
+          try {
+            const envelope = JSON.parse(stdout) as Record<string, unknown>;
+            if (typeof envelope.result === 'string') text = envelope.result;
+          } catch { /* stdout is plain text, continue */ }
+          // strip residual ANSI codes
+          text = text.replace(/\x1B\[[0-9;]*[mGKHFJ]/g, '').replace(/\r/g, '');
+          const match = text.match(/<generate_output>\s*([\s\S]*?)\s*<\/generate_output>/);
+          const jsonStr = match ? match[1] : text.match(/\{[\s\S]*"html"[\s\S]*\}/)?.[0];
           if (!jsonStr) { reject(new Error('CLI 输出中未找到有效 JSON')); return; }
           try {
             resolve(JSON.parse(jsonStr) as GenerateOutput);
@@ -189,7 +310,7 @@ ${HTML_SPEC}`;
 
       const message = await anthropic.messages.create(
         {
-          model: 'claude-opus-4-7',
+          model: modelId,
           max_tokens: 16000,
           tools,
           tool_choice: { type: 'tool', name: 'generate_page' },
@@ -207,28 +328,45 @@ ${HTML_SPEC}`;
     clearTimeout(timeoutHandle);
   }
 
-  // Reset agent status
-  await supabase.from('agents').update({ status: 'idle', last_seen_at: new Date().toISOString() }).eq('id', agentId);
-
   if (!output?.html) {
     return NextResponse.json({ error: 'Generation failed: no HTML output' }, { status: 500 });
   }
 
-  const { data: submission, error: insertError } = await supabase
-    .from('submissions')
+  // Insert into synthesis_results with attribution_map metadata
+  console.log('[generate] inserting submission for', { projectId, requirementId, agentId, hasHtml: !!output.html });
+  const { data: result, error: insertError } = await supabase
+    .from('synthesis_results')
     .insert({
-      project_id: projectId,
-      requirement_id: requirementId,
-      agent_id: agentId,
+      room_id: projectId,
+      round: 1,
       html_content: output.html,
-      summary: output.summary ?? '',
+      attribution_map: {
+        agent_id: agentId,
+        agent_name: agentName,
+        role_description: roleDescription,
+        requirement_id: requirementId,
+        summary: output.summary ?? '',
+      },
+      conflicts_resolved: null,
     })
     .select()
     .single();
 
-  if (insertError || !submission) {
+  console.log('[generate] insert result:', { insertError: insertError?.message, resultId: result?.id });
+  if (insertError || !result) {
     return NextResponse.json({ error: insertError?.message ?? 'Submission insert failed' }, { status: 500 });
   }
+
+  const submission = {
+    id: result.id as string,
+    project_id: result.room_id as string,
+    requirement_id: requirementId,
+    agent_id: agentId,
+    html_content: result.html_content as string,
+    summary: output.summary ?? '',
+    created_at: result.created_at as string,
+    agent: { id: agentId, name: agentName, role_description: roleDescription, status: 'idle' },
+  };
 
   return NextResponse.json({ submission });
 }

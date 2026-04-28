@@ -1,8 +1,8 @@
-export type DeepWorkProtocolVersion = '0.1';
+export type DeepLoopProtocolVersion = '0.1';
 
-export type DeepWorkStateMode = 'local-room-snapshots' | 'local-only' | 'file-sync' | 'hybrid';
+export type DeepLoopStateMode = 'local-room-snapshots' | 'local-only' | 'file-sync' | 'hybrid';
 
-export type DeepWorkEventType =
+export type DeepLoopEventType =
   | 'actor.joined'
   | 'intent.created'
   | 'section.created'
@@ -15,21 +15,21 @@ export type DeepWorkEventType =
   | 'conflict.detected'
   | 'summary.updated';
 
-export type DeepWorkActorType = 'human' | 'agent' | 'service';
+export type DeepLoopActorType = 'human' | 'agent' | 'service';
 
-export type DeepWorkActorTrustLevel = 'owner' | 'trusted' | 'scoped' | 'observer';
+export type DeepLoopActorTrustLevel = 'owner' | 'trusted' | 'scoped' | 'observer';
 
-export interface DeepWorkProjectKey {
-  protocolVersion: DeepWorkProtocolVersion;
+export interface DeepLoopProjectKey {
+  protocolVersion: DeepLoopProtocolVersion;
   projectId: string;
   projectName?: string;
-  stateMode: DeepWorkStateMode;
+  stateMode: DeepLoopStateMode;
   currentRoomId?: string;
   currentSnapshotPath: string;
   roomsIndexPath?: string;
   eventsPath: string;
   realtimeChannel?: string;
-  supportedEventTypes: DeepWorkEventType[];
+  supportedEventTypes: DeepLoopEventType[];
   outputs?: Record<string, string>;
   permissions?: {
     humanCanPropose?: boolean;
@@ -40,18 +40,18 @@ export interface DeepWorkProjectKey {
   updatedAt: string;
 }
 
-export interface DeepWorkActor {
+export interface DeepLoopActor {
   id: string;
-  type: DeepWorkActorType;
+  type: DeepLoopActorType;
   name: string;
   role?: string;
   capabilities?: string[];
-  trustLevel?: DeepWorkActorTrustLevel;
+  trustLevel?: DeepLoopActorTrustLevel;
 }
 
-export interface DeepWorkBaseEvent {
+export interface DeepLoopBaseEvent {
   id?: string;
-  type: DeepWorkEventType;
+  type: DeepLoopEventType;
   projectId: string;
   roomId?: string;
   actorId?: string;
@@ -62,14 +62,14 @@ export interface DeepWorkBaseEvent {
   recordedAt: string;
 }
 
-export interface DeepWorkIntentCreatedEvent extends DeepWorkBaseEvent {
+export interface DeepLoopIntentCreatedEvent extends DeepLoopBaseEvent {
   type: 'intent.created';
   intentId?: string;
   section: string;
   content: string;
 }
 
-export interface DeepWorkPatchEvent extends DeepWorkBaseEvent {
+export interface DeepLoopPatchEvent extends DeepLoopBaseEvent {
   type: 'patch.proposed' | 'patch.applied';
   linkedEventIds?: string[];
   linkedIntents?: string[];
@@ -80,124 +80,124 @@ export interface DeepWorkPatchEvent extends DeepWorkBaseEvent {
   patchId?: string;
 }
 
-export interface DeepWorkArtifactUpdatedEvent extends DeepWorkBaseEvent {
+export interface DeepLoopArtifactUpdatedEvent extends DeepLoopBaseEvent {
   type: 'artifact.updated';
   artifactType: 'html' | 'markdown' | 'doc' | 'code' | 'other';
   artifactPath?: string;
   attributionMap?: Record<string, string>;
 }
 
-export interface DeepWorkActorJoinedEvent extends DeepWorkBaseEvent {
+export interface DeepLoopActorJoinedEvent extends DeepLoopBaseEvent {
   type: 'actor.joined';
 }
 
-export interface DeepWorkSectionCreatedEvent extends DeepWorkBaseEvent {
+export interface DeepLoopSectionCreatedEvent extends DeepLoopBaseEvent {
   type: 'section.created';
   section: string;
 }
 
-export interface DeepWorkSynthesisEvent extends DeepWorkBaseEvent {
+export interface DeepLoopSynthesisEvent extends DeepLoopBaseEvent {
   type: 'synthesis.started' | 'synthesis.completed';
   round?: number;
 }
 
-export interface DeepWorkDecisionAcceptedEvent extends DeepWorkBaseEvent {
+export interface DeepLoopDecisionAcceptedEvent extends DeepLoopBaseEvent {
   type: 'decision.accepted';
   decisionId?: string;
   title?: string;
   value?: string;
 }
 
-export interface DeepWorkConflictDetectedEvent extends DeepWorkBaseEvent {
+export interface DeepLoopConflictDetectedEvent extends DeepLoopBaseEvent {
   type: 'conflict.detected';
   conflictId?: string;
   sections?: string[];
   actorIds?: string[];
 }
 
-export interface DeepWorkSummaryUpdatedEvent extends DeepWorkBaseEvent {
+export interface DeepLoopSummaryUpdatedEvent extends DeepLoopBaseEvent {
   type: 'summary.updated';
   section?: string;
 }
 
-export type DeepWorkSemanticEvent =
-  | DeepWorkActorJoinedEvent
-  | DeepWorkIntentCreatedEvent
-  | DeepWorkSectionCreatedEvent
-  | DeepWorkDecisionAcceptedEvent
-  | DeepWorkPatchEvent
-  | DeepWorkArtifactUpdatedEvent
-  | DeepWorkSynthesisEvent
-  | DeepWorkConflictDetectedEvent
-  | DeepWorkSummaryUpdatedEvent;
+export type DeepLoopSemanticEvent =
+  | DeepLoopActorJoinedEvent
+  | DeepLoopIntentCreatedEvent
+  | DeepLoopSectionCreatedEvent
+  | DeepLoopDecisionAcceptedEvent
+  | DeepLoopPatchEvent
+  | DeepLoopArtifactUpdatedEvent
+  | DeepLoopSynthesisEvent
+  | DeepLoopConflictDetectedEvent
+  | DeepLoopSummaryUpdatedEvent;
 
-export type DeepWorkActionPriority = 'p0' | 'p1' | 'p2';
+export type DeepLoopActionPriority = 'p0' | 'p1' | 'p2';
 
-export interface DeepWorkGovernancePolicy {
+export interface DeepLoopGovernancePolicy {
   rule: 'human_review_required' | 'agent_may_write_event' | 'agent_may_propose_only';
   reason: string;
-  requiredEventTypes?: DeepWorkEventType[];
-  allowedActorTrustLevels?: DeepWorkActorTrustLevel[];
+  requiredEventTypes?: DeepLoopEventType[];
+  allowedActorTrustLevels?: DeepLoopActorTrustLevel[];
 }
 
-export type DeepWorkRecommendedActionSuggestion =
+export type DeepLoopRecommendedActionSuggestion =
   | 'write_event'
   | 'run_synthesis'
   | 'invite_actor'
   | 'review_patch';
 
-export interface DeepWorkRecommendedAction {
+export interface DeepLoopRecommendedAction {
   id: string;
-  priority: DeepWorkActionPriority;
+  priority: DeepLoopActionPriority;
   summary: string;
   reason: string;
-  eventTypes?: DeepWorkEventType[];
+  eventTypes?: DeepLoopEventType[];
   affectedSections?: string[];
   affectedFiles?: string[];
   linkedEventIds?: string[];
-  suggestedAction?: DeepWorkRecommendedActionSuggestion;
+  suggestedAction?: DeepLoopRecommendedActionSuggestion;
   actorScope?: {
     missingActorRoles?: string[];
     presentActorRoles?: string[];
     note?: string;
   };
   closeWith?: {
-    eventType: DeepWorkEventType;
+    eventType: DeepLoopEventType;
     field: 'decisionId' | 'linkedEventIds' | 'linkedIntents';
     acceptedValues: string[];
     note?: string;
   };
-  governancePolicy?: DeepWorkGovernancePolicy;
+  governancePolicy?: DeepLoopGovernancePolicy;
 }
 
-export interface DeepWorkActionCapabilityExample {
-  eventType?: DeepWorkEventType;
+export interface DeepLoopActionCapabilityExample {
+  eventType?: DeepLoopEventType;
   description: string;
   // Full HTTP request body to POST to writeEndpoint. Replace ROOM_ID with the actual roomId.
   body: Record<string, unknown>;
 }
 
-export interface DeepWorkActionCapability {
-  suggestedAction: DeepWorkRecommendedActionSuggestion;
+export interface DeepLoopActionCapability {
+  suggestedAction: DeepLoopRecommendedActionSuggestion;
   description: string;
   writeEndpoint?: string;
-  requiredEventTypes?: DeepWorkEventType[];
+  requiredEventTypes?: DeepLoopEventType[];
   requiresHumanReview?: boolean;
   // Concrete copy-paste examples an agent can use to construct a valid request.
-  examplePayloads?: DeepWorkActionCapabilityExample[];
+  examplePayloads?: DeepLoopActionCapabilityExample[];
 }
 
-export interface DeepWorkSnapshot {
+export interface DeepLoopSnapshot {
   meta: {
     projectId: string;
     roomId?: string;
-    protocolVersion: DeepWorkProtocolVersion;
+    protocolVersion: DeepLoopProtocolVersion;
     snapshotVersion: 1;
     updatedAt: string;
   };
   goal?: string;
   positioning?: string;
-  actors: DeepWorkActor[];
+  actors: DeepLoopActor[];
   sections: Array<{
     id?: string;
     name: string;
@@ -221,7 +221,7 @@ export interface DeepWorkSnapshot {
     status: 'proposed' | 'accepted' | 'rejected' | 'superseded';
     acceptedAt?: string;
   }>;
-  proposedPatches?: DeepWorkPatchEvent[];
+  proposedPatches?: DeepLoopPatchEvent[];
   latestArtifacts?: Array<{
     id?: string;
     type: string;
@@ -235,10 +235,10 @@ export interface DeepWorkSnapshot {
     sections?: string[];
     actorIds?: string[];
   }>;
-  recommendedNextActions?: DeepWorkRecommendedAction[];
+  recommendedNextActions?: DeepLoopRecommendedAction[];
 }
 
-export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
+export const DEEPLOOP_ACTION_CAPABILITIES: DeepLoopActionCapability[] = [
   {
     suggestedAction: 'write_event',
     description: 'Append a validated semantic event through the workspace event writer.',
@@ -280,7 +280,7 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
             type: 'intent.created',
             summary: 'Agent proposes adding a live demo embed to the hero section',
             section: 'hero',
-            content: 'Hero should include an interactive embed showing a live DeepWork session so visitors understand the product without reading.',
+            content: 'Hero should include an interactive embed showing a live DeepLoop session so visitors understand the product without reading.',
             actorId: 'agent-machine-b',
           },
         },
@@ -310,7 +310,7 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
             type: 'artifact.updated',
             summary: 'Hero section HTML updated after applying copywriter patch',
             artifactType: 'html',
-            artifactPath: '.deepwork/rooms/ROOM_ID/latest.html',
+            artifactPath: '.deeploop/rooms/ROOM_ID/latest.html',
           },
         },
       },
@@ -381,7 +381,7 @@ export const DEEPWORK_ACTION_CAPABILITIES: DeepWorkActionCapability[] = [
   },
 ];
 
-export const DEEPWORK_SUPPORTED_EVENT_TYPES: DeepWorkEventType[] = [
+export const DEEPLOOP_SUPPORTED_EVENT_TYPES: DeepLoopEventType[] = [
   'actor.joined',
   'intent.created',
   'section.created',
@@ -395,8 +395,8 @@ export const DEEPWORK_SUPPORTED_EVENT_TYPES: DeepWorkEventType[] = [
   'summary.updated',
 ];
 
-export function toSemanticEventType(type: string): DeepWorkEventType {
-  const legacyToSemantic: Record<string, DeepWorkEventType> = {
+export function toSemanticEventType(type: string): DeepLoopEventType {
+  const legacyToSemantic: Record<string, DeepLoopEventType> = {
     room_joined: 'actor.joined',
     intent_created: 'intent.created',
     section_added: 'section.created',
@@ -406,9 +406,9 @@ export function toSemanticEventType(type: string): DeepWorkEventType {
 
   const semanticType = legacyToSemantic[type] ?? type;
 
-  if (!DEEPWORK_SUPPORTED_EVENT_TYPES.includes(semanticType as DeepWorkEventType)) {
-    throw new Error(`Unsupported DeepWork event type: ${type}`);
+  if (!DEEPLOOP_SUPPORTED_EVENT_TYPES.includes(semanticType as DeepLoopEventType)) {
+    throw new Error(`Unsupported DeepLoop event type: ${type}`);
   }
 
-  return semanticType as DeepWorkEventType;
+  return semanticType as DeepLoopEventType;
 }

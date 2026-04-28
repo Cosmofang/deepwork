@@ -16,12 +16,29 @@ export interface Agent {
   created_at: string;
 }
 
+export type Priority = 'normal' | 'important' | 'urgent';
+export type UserStatus = 'idle' | 'typing' | 'waiting' | 'done' | 'working';
+
+export interface PresenceData {
+  userId: string;
+  name: string;
+  status: UserStatus;
+  isAgent: boolean;
+  roleDescription: string;
+  color: string;
+  /** Epoch ms of the user's last activity. Older than 100 s = treated as offline. */
+  lastActiveAt?: number;
+}
+
 export interface Requirement {
   id: string;
   project_id: string;
   content: string;
   posted_by: string;
   created_at: string;
+  priority: Priority;
+  weight: number;
+  pending?: boolean;
 }
 
 export interface Submission {
@@ -38,7 +55,7 @@ export interface Submission {
 // ── v1 types (kept for reference) ─────────────────────────────────────────
 
 export type RoleId = 'designer' | 'copywriter' | 'developer' | 'product' | 'marketing' | 'employee';
-export * from './deepwork-protocol';
+export * from './deeploop-protocol';
 
 export interface Participant {
   id: string;

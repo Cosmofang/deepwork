@@ -76,7 +76,7 @@ export default function RoomPage() {
   const buildAgentPrompt = (roleId: RoleId) => {
     const r = ROLES[roleId];
     const base = typeof window !== 'undefined' ? window.location.origin : '';
-    return `你是一个 AI 参与者，正在加入 DeepWork 多角色意图合成会议。
+    return `你是一个 AI 参与者，正在加入 DeepLoop 多角色意图合成会议。
 
 **你的角色**：${r.label}（${r.typical}）
 
@@ -127,7 +127,7 @@ Content-Type: application/json
     const base = typeof window !== 'undefined' ? window.location.origin : '';
     const sampleContent = r.demoIntents[0]?.content.replace(/"/g, '\\"') ?? '你的意图内容';
     return `#!/bin/bash
-# DeepWork Agent 接入脚本 — 角色：${r.label}
+# DeepLoop Agent 接入脚本 — 角色：${r.label}
 BASE="${base}"
 ROOM="${id}"
 
@@ -649,7 +649,7 @@ echo -e "\\n✓ 意图已提交"`;
       {/* Header */}
       <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-[var(--c-border-2)] flex-shrink-0 bg-[var(--c-surface)]">
         <div className="flex items-center gap-2 md:gap-3 min-w-0">
-          <span className="font-bold text-sm md:text-base flex-shrink-0 text-[var(--c-text-1)]">DeepWork</span>
+          <span className="font-bold text-sm md:text-base flex-shrink-0 text-[var(--c-text-1)]">DeepLoop</span>
           <span className="text-[var(--c-text-6)] hidden md:inline">·</span>
           <button
             onClick={copyRoomCode}

@@ -8,12 +8,12 @@
   --c-sidebar: #f1f3f5;
   --c-input: #f1f3f5;
 
-  --c-text-1: #111827;
-  --c-text-2: #374151;
-  --c-text-3: #4b5563;
-  --c-text-4: #6b7280;
-  --c-text-5: #9ca3af;
-  --c-text-6: #d1d5db;
+  --c-text-1: #0f172a;
+  --c-text-2: #1e293b;
+  --c-text-3: #334155;
+  --c-text-4: #455364;
+  --c-text-5: #5b6878;
+  --c-text-6: #6e7c8c;
 
   --c-border-1: rgba(0,0,0,0.05);
   --c-border-2: rgba(0,0,0,0.07);
@@ -40,9 +40,9 @@ html.dark {
   --c-text-1: #f0ede8;
   --c-text-2: #dbd8d2;
   --c-text-3: #b8b3ab;
-  --c-text-4: #8c8580;
-  --c-text-5: #635f59;
-  --c-text-6: #45413c;
+  --c-text-4: #968f87;
+  --c-text-5: #7d766f;
+  --c-text-6: #6a635b;
 
   --c-border-1: rgba(255,255,255,0.05);
   --c-border-2: rgba(255,255,255,0.07);
@@ -61,8 +61,97 @@ html.dark {
 body {
   background: var(--c-bg);
   color: var(--c-text-1);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* Form inputs / textareas */
+.app-input {
+  background: var(--c-input);
+  border: 1px solid var(--c-border-3);
+  color: var(--c-text-1);
+  transition: border-color 0.15s;
+}
+.app-input::placeholder { color: var(--c-text-6); }
+.app-input:focus { border-color: var(--c-border-4); outline: none; }
+.app-input:disabled { opacity: 0.4; }
+
+/* Secondary ghost button (code generator, etc.) */
+.app-secondary-btn {
+  background: var(--c-input);
+  border: 1px solid var(--c-border-3);
+  color: var(--c-text-4);
+  transition: color 0.15s, border-color 0.15s;
+}
+.app-secondary-btn:hover { color: var(--c-text-2); border-color: var(--c-border-5); }
+
+/* ── Liquid glass tokens — Apple-style (additive, scoped to .liquid-bg / .glass-* users) ──── */
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-bg-faint: rgba(255, 255, 255, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-edge: rgba(15, 23, 42, 0.08);
+  --glass-blur: blur(28px) saturate(180%);
+  --glass-blur-strong: blur(48px) saturate(200%);
+  --glass-shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
+  --glass-shadow-strong: 0 16px 40px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.04);
+  --glass-highlight: rgba(255, 255, 255, 0.65);
+
+  --liquid-base: #f5f5f7;
+  --liquid-1: radial-gradient(at 8% 12%, rgba(168, 85, 247, 0.10), transparent 42%);
+  --liquid-2: radial-gradient(at 92% 6%, rgba(59, 130, 246, 0.08), transparent 38%);
+  --liquid-3: radial-gradient(at 50% 100%, rgba(34, 197, 94, 0.06), transparent 45%);
+}
+
+html.dark {
+  --glass-bg: rgba(28, 28, 32, 0.50);
+  --glass-bg-strong: rgba(28, 28, 32, 0.68);
+  --glass-bg-faint: rgba(28, 28, 32, 0.32);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-edge: rgba(255, 255, 255, 0.06);
+  --glass-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  --glass-shadow-strong: 0 18px 50px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.3);
+  --glass-highlight: rgba(255, 255, 255, 0.10);
+
+  --liquid-base: #0a0a0f;
+  --liquid-1: radial-gradient(at 8% 12%, rgba(168, 85, 247, 0.22), transparent 50%);
+  --liquid-2: radial-gradient(at 92% 6%, rgba(59, 130, 246, 0.16), transparent 50%);
+  --liquid-3: radial-gradient(at 50% 100%, rgba(34, 197, 94, 0.10), transparent 50%);
+}
+
+.liquid-bg {
+  background:
+    var(--liquid-1),
+    var(--liquid-2),
+    var(--liquid-3),
+    var(--liquid-base);
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border);
+}
+
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
+  border: 1px solid var(--glass-border);
+  /* Drop shadow for floating, plus an inset top highlight to suggest the
+     glass is lit from above — the signature Apple liquid-glass detail. */
+  box-shadow:
+    var(--glass-shadow-strong),
+    inset 0 1px 0 var(--glass-highlight);
+}
+
+.glass-faint {
+  background: var(--glass-bg-faint);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
 }

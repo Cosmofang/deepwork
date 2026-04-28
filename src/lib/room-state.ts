@@ -5,16 +5,16 @@ import { DEFAULT_SECTION, normalizeSectionName } from '@/lib/sections';
 import { ROLE_IDS, ROLES } from '@/lib/roles';
 import { Intent, Participant, RoleId, Room, RoomSection, SynthesisResult } from '@/types';
 import {
-  DEEPWORK_SUPPORTED_EVENT_TYPES,
-  DeepWorkArtifactUpdatedEvent,
-  DeepWorkConflictDetectedEvent,
-  DeepWorkProjectKey,
-  DeepWorkSnapshot,
-  DeepWorkPatchEvent,
-  DeepWorkRecommendedAction,
-  DeepWorkSemanticEvent,
+  DEEPLOOP_SUPPORTED_EVENT_TYPES,
+  DeepLoopArtifactUpdatedEvent,
+  DeepLoopConflictDetectedEvent,
+  DeepLoopProjectKey,
+  DeepLoopSnapshot,
+  DeepLoopPatchEvent,
+  DeepLoopRecommendedAction,
+  DeepLoopSemanticEvent,
   toSemanticEventType,
-} from '@/types/deepwork-protocol';
+} from '@/types/deeploop-protocol';
 import { GovernanceIndex, readGovernanceIndex, updateGovernanceIndex } from '@/lib/governance-index';
 
 type IntentWithParticipant = Intent & { participant: Participant | null };
@@ -108,15 +108,15 @@ interface RoomIndexEntry {
   latestRound: number | null;
 }
 
-const DEEPWORK_ROOT = path.join(process.cwd(), '.deepwork');
-const WORKSPACE_ROOT = path.join(DEEPWORK_ROOT, 'rooms');
+const DEEPLOOP_ROOT = path.join(process.cwd(), '.deeploop');
+const WORKSPACE_ROOT = path.join(DEEPLOOP_ROOT, 'rooms');
 
 function stableEventId(type: string) {
   const randomSuffix = Math.random().toString(36).slice(2, 8);
   return `${type.replace(/\./g, '-')}-${Date.now().toString(36)}-${randomSuffix}`;
 }
 
-function eventIdentity(event: DeepWorkSemanticEvent) {
+function eventIdentity(event: DeepLoopSemanticEvent) {
   return event.id || event.recordedAt;
 }
 
@@ -299,17 +299,17 @@ async function writeProjectEntry(snapshot: RoomSnapshot, roomDir: string) {
 
   await fs.writeFile(indexPath, JSON.stringify(nextIndex, null, 2), 'utf8');
 
-  const projectKey: DeepWorkProjectKey = {
+  const projectKey: DeepLoopProjectKey = {
     protocolVersion: '0.1',
-    projectId: 'deepwork',
-    projectName: 'DeepWork',
+    projectId: 'deeploop',
+    projectName: 'DeepLoop',
     stateMode: 'local-room-snapshots',
     currentRoomId: snapshot.meta.roomId,
     currentSnapshotPath: path.relative(process.cwd(), path.join(roomDir, 'snapshot.json')),
     roomsIndexPath: path.relative(process.cwd(), indexPath),
     eventsPath: path.relative(process.cwd(), path.join(roomDir, 'events.ndjson')),
     realtimeChannel: `room:${snapshot.meta.roomId}`,
-    supportedEventTypes: DEEPWORK_SUPPORTED_EVENT_TYPES,
+    supportedEventTypes: DEEPLOOP_SUPPORTED_EVENT_TYPES,
     outputs: {
       html: path.relative(process.cwd(), path.join(roomDir, 'latest.html')),
       summary: path.relative(process.cwd(), path.join(roomDir, 'summary.md')),
@@ -323,15 +323,15 @@ async function writeProjectEntry(snapshot: RoomSnapshot, roomDir: string) {
     updatedAt: snapshot.meta.updatedAt,
   };
 
-  await fs.writeFile(path.join(DEEPWORK_ROOT, 'project.json'), JSON.stringify(projectKey, null, 2), 'utf8');
+  await fs.writeFile(path.join(DEEPLOOP_ROOT, 'project.json'), JSON.stringify(projectKey, null, 2), 'utf8');
 }
 
-function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWorkSemanticEvent {
+function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepLoopSemanticEvent {
   const type = toSemanticEventType(event.type);
   const base = {
     id: stableEventId(type),
     type,
-    projectId: 'deepwork',
+    projectId: 'deeploop',
     roomId,
     actorId: event.participantId,
     participantId: event.participantId,
@@ -413,11 +413,11 @@ function toSemanticEventPayload(roomId: string, event: RoomStateEvent): DeepWork
         section: event.section || DEFAULT_SECTION,
       };
     default:
-      throw new Error(`Unsupported DeepWork semantic event type: ${type}`);
+      throw new Error(`Unsupported DeepLoop semantic event type: ${type}`);
   }
 }
 
-function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSemanticEvent[] = [], governanceIndex?: GovernanceIndex | null): DeepWorkSnapshot {
+function buildDeepLoopSnapshot(snapshot: RoomSnapshot, recentEvents: DeepLoopSemanticEvent[] = [], governanceIndex?: GovernanceIndex | null): DeepLoopSnapshot {
   // Seed proposed patches from the persistent governance index (survives >100 event windows).
   // Then add any recent patch.proposed events not yet in the index, and remove any closed by recent events.
   const indexedPatchIds = new Set(
@@ -427,9 +427,9 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
     (governanceIndex?.openPatches ?? []).map(p => p.patchId).filter(Boolean) as string[]
   );
   const recentProposals = recentEvents
-    .filter((event): event is DeepWorkPatchEvent => event.type === 'patch.proposed')
+    .filter((event): event is DeepLoopPatchEvent => event.type === 'patch.proposed')
     .filter(p => !indexedPatchIds.has(eventIdentity(p)) && !(p.patchId && indexedPatchPatchIds.has(p.patchId)));
-  const allPatches: DeepWorkPatchEvent[] = [
+  const allPatches: DeepLoopPatchEvent[] = [
     ...(governanceIndex?.openPatches ?? []),
     ...recentProposals,
   ];
@@ -453,7 +453,7 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
     });
 
   const latestArtifacts = recentEvents
-    .filter((event): event is DeepWorkArtifactUpdatedEvent => event.type === 'artifact.updated')
+    .filter((event): event is DeepLoopArtifactUpdatedEvent => event.type === 'artifact.updated')
     .map(event => ({
       id: eventIdentity(event),
       type: event.artifactType,
@@ -466,13 +466,13 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
     latestArtifacts.push({
       id: snapshot.latestSynthesis.id,
       type: 'html',
-      path: `.deepwork/rooms/${sanitizeRoomId(snapshot.meta.roomId)}/latest.html`,
+      path: `.deeploop/rooms/${sanitizeRoomId(snapshot.meta.roomId)}/latest.html`,
       updatedAt: snapshot.latestSynthesis.createdAt,
       attributionMap: snapshot.latestSynthesis.attributionMap,
     });
   }
 
-  const recommendedNextActions: DeepWorkRecommendedAction[] = [];
+  const recommendedNextActions: DeepLoopRecommendedAction[] = [];
 
   if (snapshot.intents.length === 0) {
     recommendedNextActions.push({
@@ -568,7 +568,7 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
     (governanceIndex?.openConflicts ?? []).map(c => c.conflictId).filter(Boolean) as string[]
   );
   const recentConflicts = recentEvents.filter(
-    (event): event is DeepWorkConflictDetectedEvent => event.type === 'conflict.detected'
+    (event): event is DeepLoopConflictDetectedEvent => event.type === 'conflict.detected'
   ).filter(e => !indexedConflictIds.has(eventIdentity(e)) && !(e.conflictId && indexedConflictConflictIds.has(e.conflictId)));
 
   type ConflictLike = { id?: string; conflictId?: string; summary: string; sections?: string[]; actorIds?: string[]; recordedAt?: string };
@@ -639,14 +639,14 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
 
   return {
     meta: {
-      projectId: 'deepwork',
+      projectId: 'deeploop',
       roomId: snapshot.meta.roomId,
       protocolVersion: '0.1',
       snapshotVersion: 1,
       updatedAt: snapshot.meta.updatedAt,
     },
     goal: 'Turn human and agent intent into shared, attributed project artifacts.',
-    positioning: 'DeepWork is a shared project state and intent protocol for human-agent collaboration.',
+    positioning: 'DeepLoop is a shared project state and intent protocol for human-agent collaboration.',
     actors: snapshot.participants.map(participant => ({
       id: participant.id,
       type: 'human',
@@ -690,8 +690,8 @@ function buildDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSem
   };
 }
 
-export function toDeepWorkSnapshot(snapshot: RoomSnapshot, recentEvents: DeepWorkSemanticEvent[] = [], governanceIndex?: GovernanceIndex | null): DeepWorkSnapshot {
-  return buildDeepWorkSnapshot(snapshot, recentEvents, governanceIndex);
+export function toDeepLoopSnapshot(snapshot: RoomSnapshot, recentEvents: DeepLoopSemanticEvent[] = [], governanceIndex?: GovernanceIndex | null): DeepLoopSnapshot {
+  return buildDeepLoopSnapshot(snapshot, recentEvents, governanceIndex);
 }
 
 export async function syncRoomStateToWorkspace(roomId: string, event?: RoomStateEvent, priorEvents: RoomStateEvent[] = []) {
@@ -720,7 +720,7 @@ export async function syncRoomStateToWorkspace(roomId: string, event?: RoomState
     const semanticEvents = events.map(nextEvent => toSemanticEventPayload(roomId, nextEvent));
     const lines = semanticEvents.map(e => JSON.stringify(e)).join('\n');
     await fs.appendFile(path.join(roomDir, 'events.ndjson'), `${lines}\n`, 'utf8');
-    await updateGovernanceIndex(roomDir, sanitizeRoomId(roomId), semanticEvents as DeepWorkSemanticEvent[]);
+    await updateGovernanceIndex(roomDir, sanitizeRoomId(roomId), semanticEvents as DeepLoopSemanticEvent[]);
   }
 
   await writeProjectEntry(snapshot, roomDir);

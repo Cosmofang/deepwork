@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback } from 'react';
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type FontSize = 's' | 'm' | 'l';
 
-const FONT_PX: Record<FontSize, number> = { s: 14, m: 16, l: 18 };
+const FONT_PX: Record<FontSize, number> = { s: 16, m: 17, l: 18 };
 
 function applyTheme(mode: ThemeMode) {
   const html = document.documentElement;

@@ -25,6 +25,12 @@ yarn-error.log*
 # local env files
 .env*.local
 .deepwork/
+.deeploop/
+
+# local-only build / scratch artifacts (don't commit)
+out.html
+website/
+.lumioi_global_worker.mjs
 
 # vercel
 .vercel
