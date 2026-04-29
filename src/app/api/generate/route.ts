@@ -88,7 +88,38 @@ feature-card:hover translateY(-6px)；Hero CTA 按钮呼吸动画 pulse
 - 数字统计元素加 data-count 属性
 - <footer> 含版权、链接、品牌色底栏`;
 
-type GenerateOutput = { html: string; summary: string };
+type GenerateOutput = { html: string; summary: string; thinking?: string };
+
+// ── Per-project serial queue ─────────────────────────────────────────────
+// Same-project generate requests run one-at-a-time so two concurrent jobs
+// can't both base their work on the same "current page" and clobber each
+// other (the lost-update problem). Different projects don't block each other.
+//
+// State is kept on globalThis so it survives Next.js hot-reload in dev. Each
+// entry's value is the in-flight job's promise; new arrivals chain onto it.
+// Stale entries self-cleanup once they're no longer the queue head.
+const PROJECT_GENERATE_LOCKS: Map<string, Promise<void>> = (() => {
+  const g = globalThis as { __deeploop_generate_locks?: Map<string, Promise<void>> };
+  if (!g.__deeploop_generate_locks) g.__deeploop_generate_locks = new Map();
+  return g.__deeploop_generate_locks;
+})();
+
+async function acquireProjectLock(projectId: string): Promise<() => void> {
+  const previous = PROJECT_GENERATE_LOCKS.get(projectId) ?? Promise.resolve();
+  let release!: () => void;
+  const myLock = new Promise<void>(resolve => { release = resolve; });
+  PROJECT_GENERATE_LOCKS.set(projectId, myLock);
+  // Wait for the previous in-flight job to finish (ignore its errors —
+  // we still want our turn even if the previous one threw).
+  await previous.catch(() => undefined);
+  return () => {
+    release();
+    // If no one queued behind us, drop the entry to keep the map small.
+    if (PROJECT_GENERATE_LOCKS.get(projectId) === myLock) {
+      PROJECT_GENERATE_LOCKS.delete(projectId);
+    }
+  };
+}
 
 // intents table is requirements, synthesis_results table is submissions
 // attribution_map stores: { agent_id, agent_name, requirement_id, summary, role_description }
@@ -117,6 +148,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 503 });
   }
 
+  // Wait for any in-flight generate for this project to finish before we
+  // start ours. Lock is per-project, so different projects still run in
+  // parallel. The release callback must be invoked in every exit path.
+  console.log(`[generate] queueing for project ${projectId} (active locks: ${PROJECT_GENERATE_LOCKS.size})`);
+  const releaseLock = await acquireProjectLock(projectId);
+  console.log(`[generate] starting work for project ${projectId} requirement ${requirementId.slice(0, 8)}`);
+
+  try {
   const supabase = createClient();
 
   // Fetch requirement (from intents)
@@ -240,7 +279,8 @@ ${HTML_SPEC}`;
 <generate_output>
 {
   "html": "<完整的 <!DOCTYPE html> 文档>",
-  "summary": "一句话描述生成了什么"
+  "summary": "一句话描述生成了什么",
+  "thinking": "在生成 HTML 之前的思考过程：你是怎么理解这条需求的？做了哪些关键决策（比如布局、配色、结构调整）？为什么这么改？面向面板用户用中文写 3-6 句即可，不要重复 summary。"
 }
 </generate_output>`;
 
@@ -302,8 +342,9 @@ ${HTML_SPEC}`;
             properties: {
               html: { type: 'string', description: 'Complete <!DOCTYPE html> landing page' },
               summary: { type: 'string', description: '一句话描述这个落地页的核心内容' },
+              thinking: { type: 'string', description: '在生成 HTML 之前的思考过程：你是怎么理解这条需求的？做了哪些关键决策（比如布局、配色、结构调整）？为什么这么改？面向面板用户用中文写 3-6 句即可，不要重复 summary。' },
             },
-            required: ['html', 'summary'],
+            required: ['html', 'summary', 'thinking'],
           },
         },
       ] as Parameters<typeof anthropic.messages.create>[0]['tools'];
@@ -346,6 +387,7 @@ ${HTML_SPEC}`;
         role_description: roleDescription,
         requirement_id: requirementId,
         summary: output.summary ?? '',
+        thinking: output.thinking ?? '',
       },
       conflicts_resolved: null,
     })
@@ -369,4 +411,10 @@ ${HTML_SPEC}`;
   };
 
   return NextResponse.json({ submission });
+  } finally {
+    // Always release, including on early returns inside the try block. Errors
+    // bubble up; the next queued request still gets a turn.
+    console.log(`[generate] releasing lock for project ${projectId}`);
+    releaseLock();
+  }
 }

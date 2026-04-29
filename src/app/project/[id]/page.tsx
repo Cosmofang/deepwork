@@ -167,7 +167,7 @@ function AgentConnectModal({ projectId, onClose }: { projectId: string; onClose:
       style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)' }}
       onClick={onClose}>
       <div className="w-full rounded-2xl flex flex-col overflow-hidden glass-strong"
-        style={{ maxHeight: '90vh', maxWidth: '589px' }}
+        style={{ maxHeight: '90vh', maxWidth: '850px' }}
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--c-border-2)' }}>
           <div className="flex items-center gap-2">
@@ -331,10 +331,31 @@ export default function PanelPage() {
   // this page — the floating one stays mounted globally for other routes).
   const { mode: themeMode, fontSize: themeFont, changeMode: setThemeMode, changeFontSize: setThemeFont } = useTheme();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  // Small delay before closing the appearance menu so the cursor can travel
+  // from the button to the popup (or vice versa) without the popup vanishing
+  // mid-move. mouseEnter on either part cancels any pending close.
+  const appearanceCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openAppearanceMenu = useCallback(() => {
+    if (appearanceCloseTimer.current) { clearTimeout(appearanceCloseTimer.current); appearanceCloseTimer.current = null; }
+    setAppearanceOpen(true);
+  }, []);
+  const scheduleAppearanceClose = useCallback(() => {
+    if (appearanceCloseTimer.current) clearTimeout(appearanceCloseTimer.current);
+    appearanceCloseTimer.current = setTimeout(() => setAppearanceOpen(false), 140);
+  }, []);
   // The version "pinned" as the basis for the next requirement. When set, the
   // post-requirement flow prepends e.g. 「基于 v3」 to the content so the agent
   // knows which page to iterate on rather than always starting from latest.
   const [attachedVersionId, setAttachedVersionId] = useState<string | null>(null);
+  // Submissions whose thinking trace is currently expanded in the feed.
+  const [expandedThinking, setExpandedThinking] = useState<Set<string>>(new Set());
+  const toggleThinking = useCallback((submissionId: string) => {
+    setExpandedThinking(prev => {
+      const next = new Set(prev);
+      if (next.has(submissionId)) next.delete(submissionId); else next.add(submissionId);
+      return next;
+    });
+  }, []);
   const [tick, setTick] = useState(0);
   const [lastActiveAt, setLastActiveAt] = useState(() => Date.now());
 
@@ -790,7 +811,11 @@ export default function PanelPage() {
   // Marker id lets us strip the script back out before saving.
   const EDIT_INJECT_MARKER = '__deeploop_edit_inject__';
   const buildEditableHtml = useCallback((html: string) => {
-    const inject = `<script id="${EDIT_INJECT_MARKER}">(function(){try{document.body.contentEditable='true';document.designMode='on';document.body.spellcheck=false;document.body.style.outline='none';document.body.style.cursor='text';document.querySelectorAll('a').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();});});document.querySelectorAll('button,input[type=submit],input[type=button]').forEach(function(b){b.addEventListener('click',function(e){e.preventDefault();});});}catch(e){console.error('edit inject failed',e);}})();</script>`;
+    // The injected script also listens for Ctrl/Cmd+S inside the iframe and
+    // pings the parent via postMessage — keydown events from the iframe don't
+    // bubble to the parent window, so without this the parent shortcut handler
+    // wouldn't catch saves while the iframe has focus.
+    const inject = `<script id="${EDIT_INJECT_MARKER}">(function(){try{document.body.contentEditable='true';document.designMode='on';document.body.spellcheck=false;document.body.style.outline='none';document.body.style.cursor='text';document.querySelectorAll('a').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();});});document.querySelectorAll('button,input[type=submit],input[type=button]').forEach(function(b){b.addEventListener('click',function(e){e.preventDefault();});});document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&(e.key==='s'||e.key==='S')){e.preventDefault();try{window.parent.postMessage({type:'deeploop-edit-save'},'*');}catch(err){}}},true);}catch(e){console.error('edit inject failed',e);}})();</script>`;
     if (html.includes('</body>')) return html.replace('</body>', inject + '</body>');
     return html + inject;
   }, []);
@@ -856,6 +881,32 @@ export default function PanelPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panelParticipantId, projectId, centerVersionId, bumpActive, stripInjectedScript]);
+
+  // Ctrl/Cmd+S to save while in edit mode. Two paths cover both focus states:
+  //   - Parent document keydown: fires when focus is on the panel (sidebars,
+  //     textarea, etc.) but not inside the editable iframe.
+  //   - 'deeploop-edit-save' postMessage: fired from the iframe's own keydown
+  //     handler (see buildEditableHtml) since iframe events don't bubble out.
+  useEffect(() => {
+    if (!isEditing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        if (!savingEdit) void saveEdit();
+      }
+    };
+    const onMessage = (e: MessageEvent) => {
+      if (e.data && typeof e.data === 'object' && (e.data as { type?: string }).type === 'deeploop-edit-save') {
+        if (!savingEdit) void saveEdit();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('message', onMessage);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('message', onMessage);
+    };
+  }, [isEditing, savingEdit, saveEdit]);
 
   const onlineAgents = onlineUsers.filter(u => u.isAgent);
   const onlinePanelUsers = onlineUsers.filter(u => !u.isAgent);
@@ -932,7 +983,7 @@ export default function PanelPage() {
       )}
 
       {/* Top bar */}
-      <div className="flex items-center justify-between px-5 py-3 flex-shrink-0 glass-panel" style={{ borderBottom: '1px solid var(--c-border-2)' }}>
+      <div className="flex items-center justify-between px-5 py-3 flex-shrink-0 glass-panel relative z-40" style={{ borderBottom: '1px solid var(--c-border-2)' }}>
         <div className="flex items-center gap-3">
           <span className="font-semibold text-sm">DeepLoop</span>
           <span className="text-sm" style={{ color: 'var(--c-text-6)' }}>·</span>
@@ -983,10 +1034,12 @@ export default function PanelPage() {
           </button>
           <a href="/" className="text-sm px-3 py-1.5 rounded-lg transition-all"
             style={{ color: 'var(--c-text-5)', border: '1px solid var(--c-border-3)' }}>← 返回</a>
-          {/* Appearance menu — hover to open, leaves to auto-close */}
+          {/* Appearance menu — hover to open. Popup is flush against the
+              button (no gap) and shares hover handlers, so the cursor can
+              travel from button to popup without the popup vanishing. */}
           <div className="relative"
-            onMouseEnter={() => setAppearanceOpen(true)}
-            onMouseLeave={() => setAppearanceOpen(false)}>
+            onMouseEnter={openAppearanceMenu}
+            onMouseLeave={scheduleAppearanceClose}>
             <button
               type="button"
               aria-label="外观设置"
@@ -1000,7 +1053,9 @@ export default function PanelPage() {
               <span style={{ fontSize: '16px', lineHeight: 1 }} aria-hidden>⚙</span>
             </button>
             {appearanceOpen && (
-              <div className="absolute top-full right-0 mt-1.5 z-30 rounded-2xl glass-strong p-3 flex flex-col gap-3"
+              <div className="absolute top-full right-0 z-50 rounded-2xl glass-strong p-3 flex flex-col gap-3"
+                onMouseEnter={openAppearanceMenu}
+                onMouseLeave={scheduleAppearanceClose}
                 style={{ minWidth: '208px', borderWidth: '1px', borderStyle: 'solid' }}>
                 <div>
                   <p className="text-sm uppercase tracking-widest mb-2" style={{ color: 'var(--c-text-6)' }}>主题</p>
@@ -1150,7 +1205,7 @@ export default function PanelPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
               <span className="text-sm font-medium" style={{ color: '#a855f7' }}>编辑模式</span>
               <span className="text-sm" style={{ color: 'var(--c-text-5)' }}>
-                直接点击页面上的文字即可修改，确定后会作为新版本提交
+                直接点击页面上的文字即可修改，确定后会作为新版本提交（⌘S / Ctrl+S 快捷保存）
               </span>
               <div className="ml-auto flex items-center gap-1.5">
                 <button onClick={cancelEdit} disabled={savingEdit}
@@ -1237,7 +1292,7 @@ export default function PanelPage() {
                     className="text-sm px-3 py-1.5 rounded-xl transition-all disabled:opacity-40 text-left"
                     title={panelParticipantId ? '在中间面板直接编辑这个版本的文字' : '请先重新加入项目'}
                     style={{ background: 'rgba(168,85,247,0.10)', color: '#a855f7', border: '1px solid rgba(168,85,247,0.30)' }}>
-                    ✎ 编辑此页
+                    ✎ 编辑文字
                   </button>
                   {!isLatest && currentVersion && (
                     <button onClick={followLatest}
@@ -1336,27 +1391,52 @@ export default function PanelPage() {
 
                       {/* Version result */}
                       {sub ? (
-                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-                          <span className="font-mono text-sm px-1.5 py-0.5 rounded"
-                            style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>
-                            v{vNum}
-                          </span>
-                          <span className="text-sm" style={{ color: 'var(--c-text-4)' }}>{sub.agent?.name ?? 'Agent'} — {sub.summary}</span>
-                          <span className="text-sm ml-auto" style={{ color: 'var(--c-text-6)' }}>{timeAgo(sub.created_at)}</span>
-                          {centerVersionId === sub.id ? (
-                            <span className="text-sm px-2 py-0.5 rounded"
-                              style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)' }}>
-                              当前显示
+                        <>
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
+                            <span className="font-mono text-sm px-1.5 py-0.5 rounded"
+                              style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>
+                              v{vNum}
                             </span>
-                          ) : (
-                            <button onClick={() => void viewInCenter(sub)} disabled={loadingPreview}
-                              className="text-sm px-2 py-0.5 rounded transition-all disabled:opacity-50"
-                              style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.25)' }}>
-                              查看
-                            </button>
-                          )}
-                        </div>
+                            <span className="text-sm" style={{ color: 'var(--c-text-4)' }}>{sub.agent?.name ?? 'Agent'} — {sub.summary}</span>
+                            <span className="text-sm ml-auto" style={{ color: 'var(--c-text-6)' }}>{timeAgo(sub.created_at)}</span>
+                            {centerVersionId === sub.id ? (
+                              <span className="text-sm px-2 py-0.5 rounded"
+                                style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)' }}>
+                                当前显示
+                              </span>
+                            ) : (
+                              <button onClick={() => void viewInCenter(sub)} disabled={loadingPreview}
+                                className="text-sm px-2 py-0.5 rounded transition-all disabled:opacity-50"
+                                style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.25)' }}>
+                                查看
+                              </button>
+                            )}
+                          </div>
+                          {/* Thinking trace — collapsible chain-of-thought from the agent */}
+                          {sub.thinking && (() => {
+                            const expanded = expandedThinking.has(sub.id);
+                            const teaser = sub.thinking.length > 80
+                              ? sub.thinking.slice(0, 80).replace(/\s+/g, ' ').trim() + '…'
+                              : sub.thinking;
+                            return (
+                              <div className="mt-1.5 ml-3 pl-2.5 rounded-lg"
+                                style={{ borderLeft: '2px solid rgba(168,85,247,0.35)', background: 'rgba(168,85,247,0.04)' }}>
+                                <button onClick={() => toggleThinking(sub.id)}
+                                  className="flex items-start gap-1.5 w-full text-left py-1.5 pr-2"
+                                  title={expanded ? '收起思考过程' : '展开思考过程'}>
+                                  <span className="text-sm flex-shrink-0" style={{ color: '#a855f7' }} aria-hidden>💭</span>
+                                  <span className="text-sm flex-1 min-w-0 whitespace-pre-wrap break-words" style={{ color: 'var(--c-text-5)' }}>
+                                    {expanded ? sub.thinking : teaser}
+                                  </span>
+                                  <span className="text-sm flex-shrink-0 self-center" style={{ color: 'var(--c-text-6)' }}>
+                                    {expanded ? '收起' : '展开'}
+                                  </span>
+                                </button>
+                              </div>
+                            );
+                          })()}
+                        </>
                       ) : isProcessing ? (
                         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
@@ -1436,7 +1516,7 @@ export default function PanelPage() {
                 style={{ minHeight: '128px' }}
               />
               {/* Model picker: circular icon, click to expand menu */}
-              <div className="absolute bottom-2 right-2">
+              <div className="absolute" style={{ bottom: '12px', right: '12px' }}>
                 {modelMenuOpen && (
                   <>
                     {/* click-outside scrim */}

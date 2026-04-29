@@ -48,6 +48,8 @@ export interface Submission {
   agent_id: string;
   html_content: string;
   summary: string;
+  /** Agent's reasoning before generating the HTML — may be empty for older submissions. */
+  thinking?: string;
   created_at: string;
   agent?: Agent;
 }

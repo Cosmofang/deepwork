@@ -150,64 +150,133 @@ export default function EntryPage() {
   const canEnter = name.trim() && selectedProject && !loading;
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--c-bg)' }}>
-      <div className="w-full max-w-2xl">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold tracking-tight mb-2" style={{ color: 'var(--c-text-1)' }}>DeepLoop</h1>
-          <p className="text-sm" style={{ color: 'var(--c-text-5)' }}>选择项目 · 提交需求 · 接入 Agent 并发工作</p>
-        </div>
-
-        {/* Project concept */}
+    <div
+      className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
+      style={{
+        backgroundImage: "url('/entry-bg.jpg')",
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      }}
+    >
+      <div className="relative w-full" style={{ maxWidth: '548px' }}>
+        {/* Main card — frosted glass with a near-neutral vertical gradient
+            (saturation pulled way down from the previous lavender) so the
+            rotating rainbow border carries all the color emphasis. */}
         <div
-          className="rounded-xl p-3 mb-5 text-xs leading-relaxed"
-          style={{ border: '1px solid var(--c-border-3)', background: 'var(--c-overlay)', color: 'var(--c-text-5)' }}
+          className="rounded-3xl p-6 sm:p-7 relative rainbow-sweep"
+          style={{
+            background:
+              'linear-gradient(180deg, rgba(255,255,255,0.66) 0%, rgba(248,246,250,0.58) 55%, rgba(238,234,242,0.52) 100%)',
+            backdropFilter: 'blur(60px) saturate(140%)',
+            WebkitBackdropFilter: 'blur(60px) saturate(140%)',
+            border: '1px solid rgba(255, 255, 255, 0.55)',
+            boxShadow:
+              '0 12px 36px rgba(15, 23, 42, 0.08),' +
+              '0 2px 8px rgba(15, 23, 42, 0.03),' +
+              'inset 0 1px 0 rgba(255, 255, 255, 0.75)',
+          }}
         >
-          先选择要工作的项目，再进入项目面板。进入后可以查看项目代码、提交需求，并接入 Claude、OpenClaw、Hermes 等 Agent。
-        </div>
+          {/* Hero illustration — soft purple wash with sparkles + selected pill */}
+          <div
+            className="rounded-2xl p-5 mb-5 relative overflow-hidden"
+            style={{
+              background:
+                'linear-gradient(135deg, rgba(241,245,249,0.55) 0%, rgba(226,232,240,0.40) 60%, rgba(203,213,225,0.45) 100%)',
+              border: '1px solid rgba(255, 255, 255, 0.4)',
+              boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.55)',
+              minHeight: '160px',
+            }}
+          >
+            {/* sparkle decorations */}
+            <span className="absolute select-none" style={{ top: '14%', left: '8%', fontSize: '20px', color: '#0f172a', opacity: 0.85 }} aria-hidden>✦</span>
+            <span className="absolute select-none" style={{ top: '60%', left: '15%', fontSize: '14px', color: '#0f172a', opacity: 0.55 }} aria-hidden>✧</span>
+            <span className="absolute select-none" style={{ top: '20%', right: '10%', fontSize: '12px', color: '#0f172a', opacity: 0.5 }} aria-hidden>✦</span>
+            <span className="absolute select-none" style={{ bottom: '14%', right: '20%', fontSize: '10px', color: '#475569', opacity: 0.45 }} aria-hidden>✧</span>
 
-        <div
-          className="rounded-2xl p-6 space-y-5"
-          style={{ background: 'var(--c-surface)', border: '1px solid var(--c-border-3)' }}
-        >
-          {/* Name */}
-          <div>
-            <label className="text-xs uppercase tracking-wider mb-2 block" style={{ color: 'var(--c-text-5)' }}>
-              你的名字
-            </label>
+            {/* dot/particle texture */}
+            <div className="absolute inset-0 pointer-events-none" style={{
+              background:
+                'radial-gradient(circle at 25% 70%, rgba(255,255,255,0.6) 1px, transparent 2px),' +
+                'radial-gradient(circle at 75% 30%, rgba(255,255,255,0.5) 1px, transparent 2px),' +
+                'radial-gradient(circle at 50% 85%, rgba(255,255,255,0.5) 1px, transparent 2px)',
+              backgroundSize: '40px 40px, 60px 60px, 80px 80px',
+              opacity: 0.6,
+            }} />
+
+            {/* selected project pill — floats over the gradient */}
+            <div className="relative flex flex-col items-end gap-2 z-10 mt-2">
+              <div
+                className="flex items-center gap-2 pl-3 pr-4 py-2 rounded-full"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.65)',
+                  backdropFilter: 'blur(16px) saturate(180%)',
+                  WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+                  boxShadow: '0 6px 18px rgba(15,23,42,0.10), inset 0 1px 0 rgba(255,255,255,0.85)',
+                  border: '1px solid rgba(255, 255, 255, 0.7)',
+                }}
+              >
+                <span style={{ color: '#0f172a' }} aria-hidden>✦</span>
+                <span className="font-medium" style={{ color: '#1f2937', fontSize: '15px' }}>{selectedProject.name}</span>
+                <span className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(15,23,42,0.10)', color: '#0f172a' }}>{selectedProject.code}</span>
+              </div>
+              <p className="text-xs pr-1 max-w-[260px] text-right" style={{ color: '#475569', opacity: 0.85 }}>
+                {selectedProject.desc}
+              </p>
+            </div>
+
+            {/* paper plane icon bottom-left */}
+            <div className="absolute bottom-3 left-3 z-10" style={{ color: '#0f172a', opacity: 0.7 }} aria-hidden>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 2 11 13" />
+                <path d="m22 2-7 20-4-9-9-4z" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Form: name input */}
+          <div className="space-y-3 mb-4">
             <input
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && canEnter && handleEnter()}
-              placeholder="输入名字..."
-              className="app-input w-full rounded-xl px-4 py-3 text-sm"
+              placeholder="你的名字"
+              className="w-full rounded-2xl px-5 py-3 text-sm transition-all"
+              style={{
+                background: 'rgba(255, 255, 255, 0.55)',
+                backdropFilter: 'blur(14px)',
+                WebkitBackdropFilter: 'blur(14px)',
+                border: '1px solid rgba(255, 255, 255, 0.7)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6)',
+                color: '#1f2937',
+                outline: 'none',
+              }}
             />
           </div>
 
-          {/* Recent projects */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs uppercase tracking-wider" style={{ color: 'var(--c-text-5)' }}>
-                最近工作项目
-              </label>
+          {/* Project chooser */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#475569' }}>
+                选择项目
+              </span>
               {!showNewForm && (
                 <button
                   onClick={() => setShowNewForm(true)}
                   type="button"
-                  className="text-xs px-2.5 py-1 rounded-lg transition-all"
-                  style={{ background: 'var(--c-overlay-md)', border: '1px solid var(--c-border-3)', color: 'var(--c-text-4)' }}
+                  className="text-xs px-3 py-1 rounded-full font-medium transition-all"
+                  style={{ background: 'rgba(15,23,42,0.10)', color: '#0f172a', border: '1px solid rgba(15,23,42,0.25)' }}
                 >
-                  + 新建项目
+                  + 新建
                 </button>
               )}
             </div>
 
             {/* New project form (inline, collapsible) */}
             {showNewForm && (
-              <div
-                className="mb-3 rounded-xl p-3 space-y-2"
-                style={{ background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.25)' }}
+              <div className="mb-3 rounded-2xl p-3 space-y-2"
+                style={{ background: 'rgba(15,23,42,0.05)', border: '1px solid rgba(15,23,42,0.20)' }}
               >
                 <input
                   type="text"
@@ -218,8 +287,9 @@ export default function EntryPage() {
                     if (e.key === 'Escape') handleCancelNewProject();
                   }}
                   autoFocus
-                  placeholder="项目名称（必填），例如：官网 v3"
-                  className="app-input w-full rounded-lg px-3 py-2 text-sm"
+                  placeholder="项目名称（必填）"
+                  className="w-full rounded-xl px-3 py-2 text-sm"
+                  style={{ background: 'rgba(255,255,255,0.55)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.7)', outline: 'none', color: '#1f2937' }}
                 />
                 <input
                   type="text"
@@ -229,54 +299,58 @@ export default function EntryPage() {
                     if (e.key === 'Enter') handleSubmitNewProject();
                     if (e.key === 'Escape') handleCancelNewProject();
                   }}
-                  placeholder="项目描述（可选），例如：落地页转化优化"
-                  className="app-input w-full rounded-lg px-3 py-2 text-sm"
+                  placeholder="项目描述（可选）"
+                  className="w-full rounded-xl px-3 py-2 text-sm"
+                  style={{ background: 'rgba(255,255,255,0.55)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.7)', outline: 'none', color: '#1f2937' }}
                 />
-                <div className="flex items-center gap-2 pt-1">
+                <div className="flex items-center gap-2 pt-0.5">
                   <button
                     onClick={handleSubmitNewProject}
                     disabled={!newProjName.trim()}
-                    className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{ background: 'rgba(168,85,247,0.18)', color: '#a855f7', border: '1px solid rgba(168,85,247,0.4)' }}
+                    className="text-xs px-3 py-1.5 rounded-full font-medium transition-all disabled:opacity-40"
+                    style={{ background: '#0f172a', color: '#fff' }}
                   >
                     创建
                   </button>
                   <button
                     onClick={handleCancelNewProject}
-                    className="text-xs px-3 py-1.5 rounded-lg transition-all"
-                    style={{ color: 'var(--c-text-5)', border: '1px solid var(--c-border-3)' }}
+                    className="text-xs px-3 py-1.5 rounded-full transition-all"
+                    style={{ color: '#475569' }}
                   >
                     取消
                   </button>
-                  <span className="text-[11px] ml-auto" style={{ color: 'var(--c-text-6)' }}>
-                    项目代号会自动生成，保存在本机
-                  </span>
                 </div>
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {allProjects.map(project => {
                 const active = selectedProject.code === project.code;
                 return (
-                  <div
-                    key={project.code}
-                    className="relative group"
-                  >
+                  <div key={project.code} className="relative group">
                     <button
                       type="button"
                       onClick={() => setSelectedProject({ code: project.code, name: project.name, desc: project.desc })}
-                      className="w-full text-left rounded-xl p-3 transition-all"
+                      className="rounded-full px-3.5 py-1.5 text-xs font-medium transition-all"
                       style={active
-                        ? { background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.4)' }
-                        : { background: 'var(--c-overlay)', border: '1px solid var(--c-border-2)' }
+                        ? {
+                            background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                            color: '#ffffff',
+                            boxShadow: '0 6px 16px rgba(15,23,42,0.30), inset 0 1px 0 rgba(255,255,255,0.3)',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                          }
+                        : {
+                            background: 'rgba(255, 255, 255, 0.55)',
+                            backdropFilter: 'blur(12px)',
+                            WebkitBackdropFilter: 'blur(12px)',
+                            color: '#0f172a',
+                            border: '1px solid rgba(255,255,255,0.7)',
+                            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6)',
+                          }
                       }
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium" style={{ color: active ? '#3b82f6' : 'var(--c-text-2)' }}>{project.name}</span>
-                        <span className="font-mono text-[10px]" style={{ color: 'var(--c-text-6)' }}>{project.code}</span>
-                      </div>
-                      <p className="text-[11px] leading-relaxed line-clamp-2" style={{ color: 'var(--c-text-5)' }}>{project.desc}</p>
+                      {active && <span className="mr-1" aria-hidden>✦</span>}
+                      {project.name}
                     </button>
                     {project.isUser && (
                       <button
@@ -284,8 +358,8 @@ export default function EntryPage() {
                         type="button"
                         title="从本机移除"
                         aria-label="从本机移除这个项目"
-                        className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] transition-all opacity-0 group-hover:opacity-100"
-                        style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[10px] transition-all opacity-0 group-hover:opacity-100"
+                        style={{ background: '#ef4444', color: '#fff' }}
                       >
                         ×
                       </button>
@@ -296,19 +370,47 @@ export default function EntryPage() {
             </div>
           </div>
 
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+          {error && <p className="text-red-500 text-xs mb-3">{error}</p>}
 
+          {/* Enter button — gradient pill */}
           <button
             onClick={handleEnter}
             disabled={!canEnter}
-            className="w-full py-3.5 rounded-xl font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm"
-            style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.4)', color: '#3b82f6' }}
+            className="w-full py-3.5 rounded-full font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed text-sm flex items-center justify-center gap-2"
+            style={canEnter
+              ? {
+                  background: '#0f172a',
+                  color: '#ffffff',
+                  boxShadow: '0 8px 20px rgba(15, 23, 42, 0.28)',
+                }
+              : {
+                  background: '#e5e7eb',
+                  color: '#9ca3af',
+                }
+            }
           >
-            {loading ? '进入中...' : `进入「${selectedProject.name}」 →`}
+            {loading ? (
+              <>处理中...</>
+            ) : (
+              <>
+                <span aria-hidden>✦</span>
+                <span>进入「{selectedProject.name}」</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </svg>
+              </>
+            )}
           </button>
+
+          {/* Title + subtitle (anchored at the bottom of the card) */}
+          <div className="mt-6 pt-5" style={{ borderTop: '1px solid #e2e8f0' }}>
+            <h2 className="font-bold text-lg mb-0.5" style={{ color: '#0f172a' }}>DeepLoop</h2>
+            <p className="text-xs" style={{ color: '#6b7280' }}>选择项目 · 提交需求 · 接入 Agent 并发工作。</p>
+          </div>
         </div>
 
-        <p className="text-center text-xs mt-4" style={{ color: 'var(--c-text-6)' }}>
+        <p className="text-center text-xs mt-4" style={{ color: '#475569' }}>
           Deeplumen · DeepLoop v2
         </p>
       </div>

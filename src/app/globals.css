@@ -91,7 +91,7 @@ body {
 /* ── Liquid glass tokens — Apple-style (additive, scoped to .liquid-bg / .glass-* users) ──── */
 :root {
   --glass-bg: rgba(255, 255, 255, 0.62);
-  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-bg-strong: rgba(255, 255, 255, 0.95);
   --glass-bg-faint: rgba(255, 255, 255, 0.45);
   --glass-border: rgba(255, 255, 255, 0.65);
   --glass-edge: rgba(15, 23, 42, 0.08);
@@ -109,7 +109,7 @@ body {
 
 html.dark {
   --glass-bg: rgba(28, 28, 32, 0.50);
-  --glass-bg-strong: rgba(28, 28, 32, 0.68);
+  --glass-bg-strong: rgba(28, 28, 32, 0.92);
   --glass-bg-faint: rgba(28, 28, 32, 0.32);
   --glass-border: rgba(255, 255, 255, 0.14);
   --glass-edge: rgba(255, 255, 255, 0.06);
@@ -154,4 +154,59 @@ html.dark {
   background: var(--glass-bg-faint);
   backdrop-filter: blur(18px) saturate(160%);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* ── Rainbow sweep border ─────────────────────────────────────────────────
+   A faint multi-color "comet" rotates around the card's border every 3 s.
+   Built from a conic-gradient pseudo-element + mask trick so only the
+   border is painted, not the fill.
+   Requires @property support (Chrome 85+, Safari 16.4+, Firefox 128+) for
+   the angle to animate; older browsers will see a static colored arc. */
+@property --rainbow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.rainbow-sweep {
+  position: relative;
+  isolation: isolate;
+}
+
+.rainbow-sweep::before {
+  content: '';
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--rainbow-angle),
+    transparent 0deg,
+    transparent 220deg,
+    rgba(236, 72, 153, 0.95) 250deg,
+    rgba(168, 85, 247, 1) 280deg,
+    rgba(99, 102, 241, 1) 305deg,
+    rgba(59, 130, 246, 1) 325deg,
+    rgba(34, 197, 94, 0.9) 345deg,
+    rgba(251, 191, 36, 0.7) 358deg,
+    transparent 360deg
+  );
+  /* Mask out the inner area so only the ring shows */
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#fff 0 0) content-box,
+                linear-gradient(#fff 0 0);
+          mask-composite: exclude;
+  /* Subtle glow so the colored arc bleeds beyond the 2.5px ring,
+     matching iOS-style accent halo */
+  filter: drop-shadow(0 0 6px rgba(168, 85, 247, 0.35));
+  animation: rainbow-sweep-spin 3s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes rainbow-sweep-spin {
+  to { --rainbow-angle: 360deg; }
 }

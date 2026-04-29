@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
       agent_id: meta.agent_id ?? '',
       html_content: lite ? '' : r.html_content,
       summary: meta.summary ?? '',
+      thinking: meta.thinking ?? '',
       created_at: r.created_at,
       agent: {
         id: meta.agent_id ?? '',

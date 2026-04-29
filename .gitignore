@@ -32,6 +32,10 @@ out.html
 website/
 .lumioi_global_worker.mjs
 
+# design source files (PSD, AI...) — too large for git, only the exported
+# JPG/PNG that ship in public/ should be committed
+image/
+
 # vercel
 .vercel
 

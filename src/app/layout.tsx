@@ -1,13 +1,15 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import ThemeToggle from '@/components/ThemeToggle';
 
 export const metadata: Metadata = {
   title: 'DeepLoop — 集体意图，AI 合成',
   description: '多人协作的新范式：意图 + 合成',
 };
 
-// Runs before React hydration to prevent theme flash
+// Runs before React hydration to prevent theme flash. Theme + font scale are
+// still managed via the useTheme hook (used by the inline appearance menu in
+// the project panel top bar) — only the floating bottom-right ThemeToggle UI
+// has been removed.
 const INIT_SCRIPT = `(function(){try{
   var m=localStorage.getItem('dw-theme')||'system';
   var f=localStorage.getItem('dw-font')||'m';
@@ -26,7 +28,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="antialiased">
         {children}
-        <ThemeToggle />
       </body>
     </html>
   );
